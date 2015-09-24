@@ -142,17 +142,19 @@ http_interface example:
 
 * add
 
-    curl -X PUT http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port
-or
-    curl -X PUT -d 'data{"weight":"1", "max_fails":"2", "fail_timeout":"10s"}' http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port
+    `curl -X PUT http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port`
+
+    value support json format:
+
+    `curl -X PUT -d '{"weight":"1", "max_fails":"2", "fail_timeout":"10s"}' http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port`
 
 * delete
 
-    curl -X DELETE http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port
+    `curl -X DELETE http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port`
 
 * check
 
-    curl http://$consul_ip:$port/v1/kv/upstreams/$upstream_name?recurse
+    `curl http://$consul_ip:$port/v1/kv/upstreams/$upstream_name?recurse`
 
 [Back to TOC](#table-of-contents)       
 
