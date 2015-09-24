@@ -9,13 +9,15 @@ Table of Contents
 * [Name](#name)
 * [Status](#status)
 * [Synopsis](#synopsis)
-* [Description](#functions)
+* [Description](#description)
 * [Directives](#functions)
     * [consul](#consul)
     * [update_interval](#update_interval)
     * [update_timeout](#update_timeout)
     * [strong_dependency](#strong_dependency)
+    * [delay_delete](#delay_delete)
     * [upstream_show](#upstream_show)
+* [Consul_interface](#consul_interface)
 * [TODO](#todo)
 * [Compatibility](#compatibility)
 * [Installation](#installation)
@@ -103,7 +105,9 @@ The parameters' meanings are:
 
 * update_interval: pulling servers from consul interval time.
 * update_timeout: pulling servers from consul request timeout.
-* strong_dependency: pulling servers from consul request timeout.
+* strong_dependency: when nginx start up if depending on consul, and consul is not working, nginx will boot failed, otherwise booting normally.
+
+* delay_delete: being setted carefully. Defaultly it is 75s, and it is enough content be feeding back during adding or deleting servers removing old router information. But if content is very large, and it needs minutes, then delay_delete should be setted longer than that time.
 
 [Back to TOC](#table-of-contents)       
 
@@ -126,6 +130,29 @@ description: Show specific upstream all backend servers.
 ```request
 curl http://127.0.0.1:8500/upstream_list?test;
 ```
+
+[Back to TOC](#table-of-contents)       
+
+Consul_interface
+======
+
+you can add or delete backend server through consul_ui or http_interface.
+
+http_interface example:
+
+* add
+
+    curl -X PUT http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port
+or
+    curl -X PUT -d 'data{"weight":"1", "max_fails":"2", "fail_timeout":"10s"}' http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port
+
+* delete
+
+    curl -X DELETE http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port
+
+* check
+
+    curl http://$consul_ip:$port/v1/kv/upstreams/$upstream_name?recurse
 
 [Back to TOC](#table-of-contents)       
 
@@ -155,9 +182,17 @@ Grab the nginx source code from [nginx.org](http://nginx.org/), for example, the
 wget 'http://nginx.org/download/nginx-1.8.0.tar.gz'
 tar -xzvf nginx-1.8.0.tar.gz
 cd nginx-1.8.0/
+```
 
 ```bash
 ./configure --add-module=/path/to/nginx-upsync-module
+make
+make install
+```
+
+if you support nginx-upstream-check-module
+```bash
+./configure --add-module=/path/to/nginx-upstream-check-module --add-module=/path/to/nginx-upsync-module
 make
 make install
 ```
