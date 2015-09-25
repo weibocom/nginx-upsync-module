@@ -93,8 +93,9 @@ Diretives
 
 consul
 -----------
-`syntax: consul $consul.api.com:$port/v1/kv/upstreams/$upstream_name [update_interval=second/minutes] [update_timeout=second/minutes] [strong_dependency=off/on]`
-
+```
+syntax: consul $consul.api.com:$port/v1/kv/upstreams/$upstream_name [update_interval=second/minutes] [update_timeout=second/minutes] [strong_dependency=off/on]
+```
 default: none, if parameters omitted, default parameters are update_interval=5s update_timeout=6m strong_dependency=off
 
 context: upstream
@@ -141,20 +142,25 @@ you can add or delete backend server through consul_ui or http_interface.
 http_interface example:
 
 * add
+```
+    curl -X PUT http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port
+```
+    default: weight=1 max_fails=2 fail_timeout=10 down=0 backup=0;
 
-    `curl -X PUT http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port`
-
-    value support json format:
-
-    `curl -X PUT -d '{"weight":"1", "max_fails":"2", "fail_timeout":"10s"}' http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port`
+```
+    curl -X PUT -d '{"weight":"1", "max_fails":"2", "fail_timeout":"10s"}' http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port
+```
+    value support json format.
 
 * delete
-
-    `curl -X DELETE http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port`
+```
+    curl -X DELETE http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port
+```
 
 * check
-
-    `curl http://$consul_ip:$port/v1/kv/upstreams/$upstream_name?recurse`
+```
+    curl http://$consul_ip:$port/v1/kv/upstreams/$upstream_name?recurse
+```
 
 [Back to TOC](#table-of-contents)       
 
