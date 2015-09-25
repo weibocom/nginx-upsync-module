@@ -1632,7 +1632,7 @@ ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
 static ngx_int_t
 ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle)
 {
-    ngx_msec_t                                   t, delay, tmp;
+    ngx_msec_t                                   t, tmp;
     ngx_uint_t                                   i;
     ngx_http_dynamic_update_upstream_server_t   *peer;
     ngx_http_dynamic_update_upstream_srv_conf_t *conf;
@@ -1672,8 +1672,7 @@ ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle)
          * the check events too close to each other at the beginning.
          */
         tmp = conf->update_interval;
-        delay = tmp > 1000 ? tmp : 1000;
-        t = ngx_random() % delay;
+        t = ngx_random() % 1000 + tmp;
 
         ngx_add_timer(&peer[i].update_ev, t);
     }
@@ -2087,6 +2086,7 @@ ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_pe
     if (delay_event == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                 "dynamic_update_upstream_event_init: calloc failed");
+        return;
     }
 
     if (flag == NGX_ADD) {
@@ -2110,6 +2110,7 @@ ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_pe
     delay_event->data = tmp_peers;
     ngx_add_timer(&delay_event->delay_delete_ev, conf->delay_delete);
 
+    return;
 }
 
 
@@ -2264,6 +2265,7 @@ ngx_http_parser_execute(ngx_http_dynamic_update_upstream_ctx_t *ctx)
     if (parsed != ngx_strlen(buf)) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                 "http_parser_execute: parsed body size is wrong");
+        return;
     }
 
     if (ngx_strncmp(state.status, "OK", 2) == 0) {
@@ -2390,7 +2392,7 @@ static void
 ngx_http_dynamic_update_upstream_clean_event(
         ngx_http_dynamic_update_upstream_server_t *peer)
 {
-    ngx_msec_t                                   t, delay, tmp;
+    ngx_msec_t                                   t, tmp;
     ngx_pool_t                                  *pool;
     ngx_connection_t                            *c;
     ngx_http_dynamic_update_upstream_ctx_t      *ctx;
@@ -2424,8 +2426,8 @@ ngx_http_dynamic_update_upstream_clean_event(
     if (!peer->update_ev.timer_set) {
 
         tmp = conf->update_interval;
-        delay = tmp > 1000 ? 1000 : tmp;
-        t = ngx_random() % delay + tmp;
+        t = ngx_random() % 1000 + tmp;
+
         ngx_add_timer(&peer->update_ev, t);
     }
 
