@@ -71,7 +71,8 @@ typedef struct {
 
 
 typedef struct {
-    ngx_str_t            upstream_host;
+    ngx_str_t            consul_host;
+    ngx_int_t            consul_port;
 
     ngx_msec_t           update_timeout;
     ngx_msec_t           update_interval;
@@ -296,7 +297,7 @@ ngx_module_t  ngx_http_dynamic_update_upstream_module = {
 static char *
 ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    u_char                                       *p;
+    u_char                                       *p = NULL;
     time_t                                        update_timeout = 0, update_interval = 0;
     time_t                                        delay_delete = 0;
     ngx_str_t                                    *value, s;
@@ -396,6 +397,11 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
     ngx_memzero(&u, sizeof(ngx_url_t));
 
     p = (u_char *)ngx_strchr(value[1].data, '/');
+    if (p == NULL) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                            "consul_server: please input consul upstream key in upstream");
+        return NGX_CONF_ERROR;
+    }
     duscf->update_send.data = p;
     duscf->update_send.len = value[1].len - (p - value[1].data);
 
@@ -403,8 +409,23 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
     u.url.len = p - value[1].data;
 
     p = (u_char *)ngx_strchr(value[1].data, ':');
-    duscf->upstream_host.data = value[1].data;
-    duscf->upstream_host.len = p - value[1].data;
+    if (p != NULL) {
+        duscf->consul_host.data = value[1].data;
+        duscf->consul_host.len = p - value[1].data;
+
+        duscf->consul_port = ngx_atoi(p + 1, duscf->update_send.data - p - 1);
+        if (duscf->consul_port < 1 || duscf->consul_port > 65535) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                "consul_server: consul server port is invalid");
+            return NGX_CONF_ERROR;
+        }
+
+    } else {
+        duscf->consul_host.data = value[1].data;
+        duscf->consul_host.len = u.url.len;
+
+        duscf->consul_port = 80;
+    }
 
     u.default_port = 80;
 
@@ -466,7 +487,7 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
     if (index == conf_server->index) {
         ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0,
                 "dynamic update upstream index is not change in upstream: %V",
-                &conf->upstream_host);
+                &conf->consul_host);
         return;
 
     } else {
@@ -515,7 +536,7 @@ static ngx_int_t
 ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle, 
         ngx_http_dynamic_update_upstream_server_t *conf_server)
 {
-    time_t                                   fail_timeout = 30;
+    time_t                                   fail_timeout = 0;
     u_char                                  *port, *p, *last, *pp;
     ngx_int_t                                n, j;
     ngx_uint_t                               i, weight = 0, max_fails = 0;
@@ -619,12 +640,16 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
         us.weight = 1;
     }
 
-    us.max_fails = max_fails;
+    if (max_fails != 0) {
+        us.max_fails = max_fails;
+    } else {
+        us.max_fails = 2;
+    }
 
     if (fail_timeout != 0) {
         us.fail_timeout = fail_timeout;
     } else {
-        us.fail_timeout = 30;
+        us.fail_timeout = 10;
     }
 
     if (us.naddrs > 0) {
@@ -1312,9 +1337,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
 
         if (dst.data != NULL && dst.len != 0) {
 
-            p = dst.data + dst.len;
-            p = '\0';
-            p = dst.data + 4;
+            p = dst.data;
 
             cJSON *sub_root = cJSON_Parse((char *)p);
             if (sub_root == NULL) {
@@ -1447,8 +1470,8 @@ ngx_http_dynamic_update_upstream_create_srv_conf(ngx_conf_t *cf)
         return NULL;
     }
 
-    duscf->upstream_host.len = 0;
-    duscf->upstream_host.data = NULL;
+    duscf->consul_host.len = 0;
+    duscf->consul_host.data = NULL;
 
     duscf->update_timeout = NGX_CONF_UNSET_MSEC;
     duscf->update_interval = NGX_CONF_UNSET_MSEC;
@@ -1476,7 +1499,7 @@ ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_u
 
     duscf = ngx_http_conf_upstream_srv_conf(uscf, ngx_http_dynamic_update_upstream_module);
 
-    if (duscf->upstream_host.data == NULL && duscf->upstream_host.len == 0) {
+    if (duscf->consul_host.data == NULL && duscf->consul_host.len == 0) {
         return NGX_CONF_OK;
     }
 
@@ -1609,7 +1632,7 @@ ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
 static ngx_int_t
 ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle)
 {
-    ngx_msec_t                                   t, delay, tmp;
+    ngx_msec_t                                   t, tmp;
     ngx_uint_t                                   i;
     ngx_http_dynamic_update_upstream_server_t   *peer;
     ngx_http_dynamic_update_upstream_srv_conf_t *conf;
@@ -1649,8 +1672,7 @@ ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle)
          * the check events too close to each other at the beginning.
          */
         tmp = conf->update_interval;
-        delay = tmp > 1000 ? tmp : 1000;
-        t = ngx_random() % delay;
+        t = ngx_random() % 1000 + tmp;
 
         ngx_add_timer(&peer[i].update_ev, t);
     }
@@ -1678,7 +1700,7 @@ ngx_http_dynamic_update_upstream_begin_handler(ngx_event_t *event)
 
     ctx = &peer->ctx;
     if (ctx->pool != NULL) {
-        ngx_free(ctx->pool);
+        ngx_destroy_pool(ctx->pool);
     }
     ctx->pool = NULL;
 
@@ -1709,7 +1731,9 @@ ngx_http_dynamic_update_upstream_connect_handler(ngx_event_t *event)
         return;
     }
 
-    ngx_http_dynamic_update_upstream_init_peer(event);
+    if (ngx_http_dynamic_update_upstream_init_peer(event) != NGX_OK) {
+        return;
+    }
 
     peer = event->data;
     conf = peer->conf;
@@ -1935,20 +1959,35 @@ update_recv_fail:
 static ngx_int_t
 ngx_http_dynamic_update_upstream_init_peer(ngx_event_t *event)
 {
+    ngx_pool_t                                   *pool;
     ngx_http_upstream_server_t                   *us;
+    ngx_http_dynamic_update_upstream_ctx_t       *ctx;
     ngx_http_dynamic_update_upstream_server_t    *peer;
     ngx_http_dynamic_update_upstream_srv_conf_t  *conf;
 
-    peer = event->data;
+    u_char               *p, *host = NULL;
+    size_t                len;
+    ngx_str_t            *name;
+    struct addrinfo       hints, *res=NULL, *rp=NULL;
+    struct sockaddr_in   *sin;
 
+    peer = event->data;
     conf = peer->conf;
     us = &conf->us;
 
-    ngx_memzero(&peer->pc, sizeof(ngx_peer_connection_t));
+    ctx = &peer->ctx;
+    if (ctx->pool == NULL) {
 
-    peer->pc.sockaddr = us->addrs[0].sockaddr;
-    peer->pc.socklen = us->addrs[0].socklen;
-    peer->pc.name = &us->addrs[0].name;
+        pool = ngx_create_pool(NGX_PAGE_COUNT * ngx_pagesize, ngx_cycle->log);
+        if (pool == NULL) {
+            ngx_log_error(NGX_LOG_ERR, event->log, 0, 
+                        "dynamic_update_upstream_begin: recv no enough memory");
+            return NGX_ERROR;
+        }
+        ctx->pool = pool;
+    }
+
+    ngx_memzero(&peer->pc, sizeof(ngx_peer_connection_t));
 
     peer->pc.get = ngx_event_get_peer;
     peer->pc.log = event->log;
@@ -1956,6 +1995,79 @@ ngx_http_dynamic_update_upstream_init_peer(ngx_event_t *event)
 
     peer->pc.cached = 0;
     peer->pc.connection = NULL;
+
+    if (ngx_inet_addr(conf->consul_host.data, conf->consul_host.len)
+            == INADDR_NONE) {
+
+        host = ngx_pcalloc(ctx->pool, conf->consul_host.len + 1);
+        if (host == NULL) {
+            return NGX_ERROR;
+        }
+
+        (void) ngx_cpystrn(host, conf->consul_host.data, conf->consul_host.len + 1);
+
+        ngx_memzero(&hints, sizeof(struct addrinfo));
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+#ifdef AI_ADDRCONFIG
+        hints.ai_flags = AI_ADDRCONFIG;
+#endif
+
+        if (getaddrinfo((char *) host, NULL, &hints, &res) != 0) {
+            res = NULL;
+            goto valid;
+        }
+
+        for (rp = res; rp != NULL; rp = rp->ai_next) {
+
+            if (rp->ai_family != AF_INET) {
+                continue;
+            }
+
+            sin = ngx_pcalloc(ctx->pool, rp->ai_addrlen);
+            if (sin == NULL) {
+                goto valid;
+            }
+
+            ngx_memcpy(sin, rp->ai_addr, rp->ai_addrlen);
+
+            sin->sin_port = htons((in_port_t) conf->consul_port);
+
+            peer->pc.sockaddr = (struct sockaddr *) sin;
+            peer->pc.socklen = rp->ai_addrlen;
+
+            len = NGX_INET_ADDRSTRLEN + sizeof(":65535") - 1;
+
+            p = ngx_pcalloc(ctx->pool, len);
+            if (p == NULL) {
+                goto valid;
+            }
+
+            len = ngx_sock_ntop((struct sockaddr *) sin, rp->ai_addrlen, p, len, 1);
+
+            name = ngx_pcalloc(ctx->pool, sizeof(*name));
+            if (name == NULL) {
+                goto valid;
+            }
+
+            name->len = len;
+            name->data = p;
+
+            peer->pc.name = name;
+
+            freeaddrinfo(res);
+            return NGX_OK;
+        }
+    }
+
+valid:
+    peer->pc.sockaddr = us->addrs[0].sockaddr;
+    peer->pc.socklen = us->addrs[0].socklen;
+    peer->pc.name = &us->addrs[0].name;
+
+    if (res != NULL) {
+        freeaddrinfo(res);
+    }
 
     return NGX_OK;
 }
@@ -1974,6 +2086,7 @@ ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_pe
     if (delay_event == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                 "dynamic_update_upstream_event_init: calloc failed");
+        return;
     }
 
     if (flag == NGX_ADD) {
@@ -1997,6 +2110,7 @@ ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_pe
     delay_event->data = tmp_peers;
     ngx_add_timer(&delay_event->delay_delete_ev, conf->delay_delete);
 
+    return;
 }
 
 
@@ -2151,6 +2265,7 @@ ngx_http_parser_execute(ngx_http_dynamic_update_upstream_ctx_t *ctx)
     if (parsed != ngx_strlen(buf)) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                 "http_parser_execute: parsed body size is wrong");
+        return;
     }
 
     if (ngx_strncmp(state.status, "OK", 2) == 0) {
@@ -2277,7 +2392,7 @@ static void
 ngx_http_dynamic_update_upstream_clean_event(
         ngx_http_dynamic_update_upstream_server_t *peer)
 {
-    ngx_msec_t                                   t, delay, tmp;
+    ngx_msec_t                                   t, tmp;
     ngx_pool_t                                  *pool;
     ngx_connection_t                            *c;
     ngx_http_dynamic_update_upstream_ctx_t      *ctx;
@@ -2311,8 +2426,8 @@ ngx_http_dynamic_update_upstream_clean_event(
     if (!peer->update_ev.timer_set) {
 
         tmp = conf->update_interval;
-        delay = tmp > 1000 ? 1000 : tmp;
-        t = ngx_random() % delay + tmp;
+        t = ngx_random() % 1000 + tmp;
+
         ngx_add_timer(&peer->update_ev, t);
     }
 
@@ -2670,7 +2785,10 @@ ngx_http_dynamic_update_upstream_show(ngx_http_request_t *r)
     b->last = ngx_snprintf(b->last,b->end - b->last, "Backend server counts: %d\n", peers->number);
 
     for (i = 0; i < peers->number; i++) {
-        b->last = ngx_snprintf(b->last,b->end - b->last, "        server: %V\n", &peers->peer[i].name);
+        b->last = ngx_snprintf(b->last,b->end - b->last, "        server %V", &peers->peer[i].name);
+        b->last = ngx_snprintf(b->last,b->end - b->last, " weight=%d", peers->peer[i].weight);
+        b->last = ngx_snprintf(b->last,b->end - b->last, " max_fails=%d", peers->peer[i].max_fails);
+        b->last = ngx_snprintf(b->last,b->end - b->last, " fail_timeout=%d;\n", peers->peer[i].fail_timeout);
     }
 
 end:
