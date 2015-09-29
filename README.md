@@ -103,9 +103,17 @@ description: Pull upstream servers from consul.
 
 The parameters' meanings are:
 
-* update_interval: pulling servers from consul interval time.
-* update_timeout: pulling servers from consul request timeout.
-* strong_dependency: when nginx start up if depending on consul, and consul is not working, nginx will boot failed, otherwise booting normally.
+* update_interval
+
+    pulling servers from consul interval time.
+
+* update_timeout
+
+    pulling servers from consul request timeout.
+
+* strong_dependency
+
+    when nginx start up if depending on consul, and consul is not working, nginx will boot failed, otherwise booting normally.
 
 [Back to TOC](#table-of-contents)       
 
