@@ -15,7 +15,6 @@ Table of Contents
     * [update_interval](#update_interval)
     * [update_timeout](#update_timeout)
     * [strong_dependency](#strong_dependency)
-    * [delay_delete](#delay_delete)
     * [upstream_show](#upstream_show)
 * [Consul_interface](#consul_interface)
 * [TODO](#todo)
@@ -108,8 +107,6 @@ The parameters' meanings are:
 * update_timeout: pulling servers from consul request timeout.
 * strong_dependency: when nginx start up if depending on consul, and consul is not working, nginx will boot failed, otherwise booting normally.
 
-* delay_delete: being setted carefully. Defaultly it is 75s, and it is enough content be feeding back during adding or deleting servers removing old router information. But if content is very large, and it needs minutes, then delay_delete should be setted longer than that time.
-
 [Back to TOC](#table-of-contents)       
 
 upstream_show
@@ -167,7 +164,6 @@ http_interface example:
 TODO
 ====
 
-* timely resolve consul server domain, if it is domain
 * support least_conn load_balancing
 
 [Back to TOC](#table-of-contents)
