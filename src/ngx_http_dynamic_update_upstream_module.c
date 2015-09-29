@@ -19,6 +19,8 @@
 
 #define NGX_MAX_VALUE 65535
 
+#define NGX_DELAY_DELETE 150 * 1000
+
 #define NGX_ADD 0
 #define NGX_DEL 1
 
@@ -117,6 +119,9 @@ typedef struct {
     ngx_event_t                              delay_delete_ev;
 
     ngx_queue_t                              queue;
+
+    time_t                                   start_sec;
+    ngx_msec_t                               start_msec;
 
     void                                    *data;
 } ngx_delay_event_t;
@@ -2077,6 +2082,7 @@ static void
 ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_peers, 
         ngx_http_dynamic_update_upstream_server_t *conf_server, ngx_flag_t flag)
 {
+    ngx_time_t                                  *tp;
     ngx_delay_event_t                           *delay_event;
     ngx_http_dynamic_update_upstream_srv_conf_t *conf;
 
@@ -2088,6 +2094,10 @@ ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_pe
                 "dynamic_update_upstream_event_init: calloc failed");
         return;
     }
+
+    tp = ngx_timeofday();
+    delay_event->start_sec = tp->sec;
+    delay_event->start_msec = tp->msec;
 
     if (flag == NGX_ADD) {
         delay_event->delay_delete_ev.handler = ngx_http_dynamic_update_upstream_add_delay_delete;
@@ -2117,10 +2127,44 @@ ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_pe
 static void
 ngx_http_dynamic_update_upstream_add_delay_delete(ngx_event_t *event)
 {
+    ngx_uint_t                     i;
+    ngx_connection_t              *c;
     ngx_delay_event_t             *delay_event;
+    ngx_http_request_t            *r=NULL;
+    ngx_http_log_ctx_t            *ctx=NULL;
     ngx_http_upstream_rr_peers_t  *tmp_peers=NULL, *tmp_backup=NULL;
 
     delay_event = event->data;
+
+    c = ngx_cycle->connections;
+    for (i = 0; i < ngx_cycle->connection_n; i++) {
+
+        if (c[i].fd == (ngx_socket_t) -1) {
+            continue;
+        } else {
+
+            if (c[i].log->data != NULL) {
+                ctx = c[i].log->data;
+                r = ctx->current_request;
+            }
+        }
+
+        if (r) {
+            if (r->start_sec < delay_event->start_sec) {
+                ngx_add_timer(&delay_event->delay_delete_ev, NGX_DELAY_DELETE);
+                return;
+            }
+
+            if (r->start_sec == delay_event->start_sec) {
+
+                if (r->start_msec <= delay_event->start_msec) {
+                    ngx_add_timer(&delay_event->delay_delete_ev, NGX_DELAY_DELETE);
+                    return;
+                }
+            }
+        }
+    }
+
     tmp_peers = delay_event->data;
     tmp_backup = tmp_peers->next;
 
@@ -2149,7 +2193,10 @@ static void
 ngx_http_dynamic_update_upstream_del_delay_delete(ngx_event_t *event)
 {
     ngx_uint_t                     i;
+    ngx_connection_t              *c;
     ngx_delay_event_t             *delay_event;
+    ngx_http_request_t            *r=NULL;
+    ngx_http_log_ctx_t            *ctx=NULL;
     ngx_http_upstream_rr_peers_t  *tmp_peers=NULL;
 
     u_char *namep = NULL;
@@ -2157,6 +2204,35 @@ ngx_http_dynamic_update_upstream_del_delay_delete(ngx_event_t *event)
 
     delay_event = event->data;
     tmp_peers = delay_event->data;
+
+    c = ngx_cycle->connections;
+    for (i = 0; i < ngx_cycle->connection_n; i++) {
+
+        if (c[i].fd == (ngx_socket_t) -1) {
+            continue;
+        } else {
+
+            if (c[i].log->data != NULL) {
+                ctx = c[i].log->data;
+                r = ctx->request;
+            }
+        }
+
+        if (r) {
+            if (r->start_sec < delay_event->start_sec) {
+                ngx_add_timer(&delay_event->delay_delete_ev, NGX_DELAY_DELETE);
+                return;
+            }
+
+            if (r->start_sec == delay_event->start_sec) {
+
+                if (r->start_msec <= delay_event->start_msec) {
+                    ngx_add_timer(&delay_event->delay_delete_ev, NGX_DELAY_DELETE);
+                    return;
+                }
+            }
+        }
+    }
 
     if (tmp_peers != NULL) {
         for (i = 0; i < tmp_peers->number; i++) {
