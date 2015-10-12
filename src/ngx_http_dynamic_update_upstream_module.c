@@ -1153,9 +1153,10 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
 #if (NGX_HTTP_UPSTREAM_CHECK) 
                     ngx_http_upstream_check_delete_dynamic_peer(
                             tmp_peers->name, &us->addrs[j]);
-#endif
 
                     tmp_peers->peer[i].check_index = NGX_MAX_VALUE;
+#endif
+
                     break;
                 }
             }
