@@ -11,6 +11,8 @@
 #include "ngx_http_json.h"
 #include "ngx_http_parser.h"
 
+#define ngx_strrchr(s1, c)   strrchr((const char *) s1, (int) c)
+
 #define NGX_INDEX_HEARDER "X-Consul-Index"
 #define NGX_INDEX_HEARDER_LEN 14
 
@@ -70,6 +72,11 @@ typedef struct {
 
     ngx_array_t                      upstream_conf;
 } ngx_http_dynamic_update_upstream_ctx_t;
+
+
+typedef struct {
+    ngx_str_t            upstream_conf_path;
+} ngx_http_dynamic_update_upstream_loc_conf_t;
 
 
 typedef struct {
@@ -154,7 +161,9 @@ extern void ngx_http_upstream_check_delete_dynamic_peer(ngx_str_t *name,
         ngx_addr_t *peer_addr);
 #endif
 
-static char * ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, 
+static char *ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, 
+        ngx_command_t *cmd, void *conf);
+static char *ngx_http_dynamic_update_upstream_set_conf_dump(ngx_conf_t *cf, 
         ngx_command_t *cmd, void *conf);
 
 static void *ngx_http_dynamic_update_upstream_create_main_conf(ngx_conf_t *cf);
@@ -162,6 +171,9 @@ static void *ngx_http_dynamic_update_upstream_create_srv_conf(ngx_conf_t *cf);
 static char *ngx_http_dynamic_update_upstream_init_main_conf(ngx_conf_t *cf, void *conf);
 static char *ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, 
         ngx_uint_t num);
+static void *ngx_http_dynamic_update_upstream_create_loc_conf(ngx_conf_t *cf);
+static char *ngx_http_dynamic_update_upstream_merge_loc_conf(ngx_conf_t *cf, void *parent, 
+        void *child);
 
 static void ngx_http_dynamic_update_upstream_process(
         ngx_http_dynamic_update_upstream_server_t *conf_server);
@@ -257,6 +269,13 @@ static ngx_command_t  ngx_http_dynamic_update_upstream_commands[] = {
         0,
         NULL },
 
+    {  ngx_string("upstream_conf_path"),
+        NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+        ngx_http_dynamic_update_upstream_set_conf_dump,
+        0,
+        0,
+        NULL },
+
     {  ngx_string("upstream_show"),
         NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
         ngx_http_dynamic_update_upstream_set,
@@ -278,8 +297,8 @@ static ngx_http_module_t  ngx_http_dynamic_update_upstream_module_ctx = {
     ngx_http_dynamic_update_upstream_create_srv_conf,  /* create server configuration */
     NULL,                                              /* merge server configuration */
 
-    NULL,                                              /* create location configuration */
-    NULL                                               /* merge main configuration */
+    ngx_http_dynamic_update_upstream_create_loc_conf,  /* create location configuration */
+    ngx_http_dynamic_update_upstream_merge_loc_conf   /* merge main configuration */
 };
 
 
@@ -324,7 +343,7 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
             s.len = value[i].len - 15;
             s.data = &value[i].data[15];
 
-            update_timeout = ngx_parse_time(&s, 1);
+            update_timeout = ngx_parse_time(&s, 0);
 
             if (update_timeout == (time_t) NGX_ERROR) {
                 goto invalid;
@@ -338,7 +357,7 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
             s.len = value[i].len - 16;
             s.data = &value[i].data[16];
 
-            update_interval = ngx_parse_time(&s, 1);
+            update_interval = ngx_parse_time(&s, 0);
 
             if (update_interval == (time_t) NGX_ERROR) {
                 goto invalid;
@@ -352,7 +371,7 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
             s.len = value[i].len - 13;
             s.data = &value[i].data[13];
 
-            delay_delete = ngx_parse_time(&s, 1);
+            delay_delete = ngx_parse_time(&s, 0);
 
             if (delay_delete == (time_t) NGX_ERROR) {
                 goto invalid;
@@ -384,15 +403,15 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
     }
 
     if (update_interval != 0) {
-        duscf->update_interval = update_interval * 1000;
+        duscf->update_interval = update_interval;
     }
 
     if (update_timeout != 0) {
-        duscf->update_timeout = update_timeout * 1000;
+        duscf->update_timeout = update_timeout;
     }
 
     if (delay_delete != 0) {
-        duscf->delay_delete = delay_delete * 1000;
+        duscf->delay_delete = delay_delete;
     }
 
     if (strong_dependency != 0) {
@@ -458,6 +477,23 @@ invalid:
                        "consul invalid parameter \"%V\"", &value[i]);
 
     return NGX_CONF_ERROR;
+}
+
+
+static char *
+ngx_http_dynamic_update_upstream_set_conf_dump(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_str_t                                        *value;
+    ngx_http_dynamic_update_upstream_loc_conf_t      *dulcf = conf;
+
+    value = cf->args->elts;
+
+    dulcf->upstream_conf_path = value[1]; 
+    if(dulcf->upstream_conf_path.len == NGX_CONF_UNSET_SIZE){
+        return NGX_CONF_ERROR; 
+    }
+
+    return NGX_CONF_OK;
 }
 
 
@@ -1153,10 +1189,9 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
 #if (NGX_HTTP_UPSTREAM_CHECK) 
                     ngx_http_upstream_check_delete_dynamic_peer(
                             tmp_peers->name, &us->addrs[j]);
-
-                    tmp_peers->peer[i].check_index = NGX_MAX_VALUE;
 #endif
 
+                    tmp_peers->peer[i].check_index = NGX_MAX_VALUE;
                     break;
                 }
             }
@@ -1308,12 +1343,9 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
 
         cJSON *temp1 = cJSON_GetObjectItem(server_next, "Key");
         if (temp1 != NULL && temp1->valuestring != NULL) {
-
-            p = (u_char *)ngx_strchr(temp1->valuestring, '/');
-            p = (u_char *)ngx_strchr(p + 1, '/');
+            p = (u_char *)ngx_strrchr(temp1->valuestring, '/');
 
             upstream_conf = ngx_array_push(&ctx->upstream_conf);
-
             ngx_memzero(upstream_conf, sizeof(*upstream_conf));
             ngx_sprintf(upstream_conf->sockaddr, "%*s", ngx_strlen(p + 1), p + 1);
         }
@@ -1541,6 +1573,36 @@ ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_u
 
     conf_server->host.len = uscf->host.len;
     conf_server->host.data = uscf->host.data;
+
+    return NGX_CONF_OK;
+}
+
+
+static void *
+ngx_http_dynamic_update_upstream_create_loc_conf(ngx_conf_t *cf)
+{
+    ngx_http_dynamic_update_upstream_loc_conf_t      *conf;
+
+    conf = ngx_palloc(cf->pool,sizeof(ngx_http_dynamic_update_upstream_loc_conf_t));
+    if(conf == NULL){
+        return NULL;
+    }
+
+    conf->upstream_conf_path.len = NGX_CONF_UNSET_SIZE;
+    conf->upstream_conf_path.data = NGX_CONF_UNSET_PTR;
+
+    return conf;
+}
+
+
+static char *
+ngx_http_dynamic_update_upstream_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+{
+    ngx_http_dynamic_update_upstream_loc_conf_t *prev = parent;
+    ngx_http_dynamic_update_upstream_loc_conf_t *conf = child;
+
+    ngx_conf_merge_str_value(conf->upstream_conf_path, prev->upstream_conf_path, 
+                             "/usr/local/nginx/conf");
 
     return NGX_CONF_OK;
 }
