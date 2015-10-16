@@ -11,7 +11,9 @@
 #include "ngx_http_json.h"
 #include "ngx_http_parser.h"
 
-#define ngx_strrchr(s1, c)   strrchr((const char *) s1, (int) c)
+#define ngx_strrchr(s1, c)              strrchr((const char *) s1, (int) c)
+#define ngx_ftruncate(fd, offset)       ftruncate(fd, offset)
+#define ngx_lseek(fd, offset, whence)   lseek(fd, offset, whence)
 
 #define NGX_INDEX_HEARDER "X-Consul-Index"
 #define NGX_INDEX_HEARDER_LEN 14
@@ -75,11 +77,6 @@ typedef struct {
 
 
 typedef struct {
-    ngx_str_t            upstream_conf_path;
-} ngx_http_dynamic_update_upstream_loc_conf_t;
-
-
-typedef struct {
     ngx_str_t            consul_host;
     ngx_int_t            consul_port;
 
@@ -91,6 +88,9 @@ typedef struct {
     ngx_uint_t           strong_dependency;
 
     ngx_str_t            update_send;
+    ngx_str_t            upstream_conf_path;
+
+    ngx_open_file_t     *conf_file;
 
     ngx_http_upstream_server_t    us;
 } ngx_http_dynamic_update_upstream_srv_conf_t;
@@ -171,14 +171,12 @@ static void *ngx_http_dynamic_update_upstream_create_srv_conf(ngx_conf_t *cf);
 static char *ngx_http_dynamic_update_upstream_init_main_conf(ngx_conf_t *cf, void *conf);
 static char *ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, 
         ngx_uint_t num);
-static void *ngx_http_dynamic_update_upstream_create_loc_conf(ngx_conf_t *cf);
-static char *ngx_http_dynamic_update_upstream_merge_loc_conf(ngx_conf_t *cf, void *parent, 
-        void *child);
 
 static void ngx_http_dynamic_update_upstream_process(
         ngx_http_dynamic_update_upstream_server_t *conf_server);
 
 static ngx_int_t ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle);
+static ngx_int_t ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle);
 static ngx_int_t ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle);
 
 static void ngx_http_dynamic_update_upstream_begin_handler(ngx_event_t *event);
@@ -188,6 +186,8 @@ static void ngx_http_dynamic_update_upstream_send_handler(ngx_event_t *event);
 static void ngx_http_dynamic_update_upstream_timeout_handler(ngx_event_t *event);
 static void ngx_http_dynamic_update_upstream_clean_event(
         ngx_http_dynamic_update_upstream_server_t *peer);
+static ngx_int_t ngx_http_dynamic_update_upstream_dump_conf(
+        ngx_http_dynamic_update_upstream_server_t *conf_server);
 static ngx_int_t ngx_http_dynamic_update_upstream_init_peer(ngx_event_t *event);
 
 static ngx_int_t ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle, 
@@ -254,6 +254,10 @@ static http_parser_settings settings = {
     .on_message_complete = 0
 };
 
+ngx_shmtx_t    dynamic_accept_mutex;
+ngx_atomic_t   dynamic_shared_created0;
+ngx_atomic_t  *dynamic_shared_created = &dynamic_shared_created0;
+
 static http_parser *parser = NULL;
 static ngx_http_state state;
 static ngx_int_t update_flag = 0;
@@ -270,9 +274,9 @@ static ngx_command_t  ngx_http_dynamic_update_upstream_commands[] = {
         NULL },
 
     {  ngx_string("upstream_conf_path"),
-        NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+        NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
         ngx_http_dynamic_update_upstream_set_conf_dump,
-        0,
+        NGX_HTTP_SRV_CONF_OFFSET,
         0,
         NULL },
 
@@ -297,8 +301,8 @@ static ngx_http_module_t  ngx_http_dynamic_update_upstream_module_ctx = {
     ngx_http_dynamic_update_upstream_create_srv_conf,  /* create server configuration */
     NULL,                                              /* merge server configuration */
 
-    ngx_http_dynamic_update_upstream_create_loc_conf,  /* create location configuration */
-    ngx_http_dynamic_update_upstream_merge_loc_conf   /* merge main configuration */
+    NULL,                                             /* create location configuration */
+    NULL                                              /* merge main configuration */
 };
 
 
@@ -308,7 +312,7 @@ ngx_module_t  ngx_http_dynamic_update_upstream_module = {
     ngx_http_dynamic_update_upstream_commands,    /* module directives */
     NGX_HTTP_MODULE,                              /* module type */
     NULL,                                         /* init master */
-    NULL,                                         /* init module */
+    ngx_http_dynamic_update_upstream_init_module, /* init module */
     ngx_http_dynamic_update_upstream_init_process,/* init process */
     NULL,                                         /* init thread */
     NULL,                                         /* exit thread */
@@ -484,12 +488,20 @@ static char *
 ngx_http_dynamic_update_upstream_set_conf_dump(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_str_t                                        *value;
-    ngx_http_dynamic_update_upstream_loc_conf_t      *dulcf = conf;
+    ngx_http_dynamic_update_upstream_srv_conf_t      *duscf;
+
+    duscf = ngx_http_conf_get_module_srv_conf(cf,
+                                              ngx_http_dynamic_update_upstream_module);
 
     value = cf->args->elts;
 
-    dulcf->upstream_conf_path = value[1]; 
-    if(dulcf->upstream_conf_path.len == NGX_CONF_UNSET_SIZE){
+    duscf->upstream_conf_path = value[1]; 
+    if (duscf->upstream_conf_path.len == NGX_CONF_UNSET_SIZE) {
+        return NGX_CONF_ERROR; 
+    }
+
+    duscf->conf_file = ngx_conf_open_file(cf->cycle, &value[1]); 
+    if (duscf->conf_file == NULL) {
         return NGX_CONF_ERROR; 
     }
 
@@ -503,7 +515,7 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
     char                                         *p;
     ngx_buf_t                                    *buf;
     ngx_int_t                                     index = 0;
-    ngx_uint_t                                    i;
+    ngx_uint_t                                    i, add_flag = 0, del_flag = 0;
     ngx_http_dynamic_update_upstream_ctx_t       *ctx;
     ngx_http_dynamic_update_upstream_srv_conf_t  *conf;
 
@@ -555,6 +567,7 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
                     "ngx_http_dynamic_update: upstream_add_server error ");
             return;
         }
+        add_flag = 1;
     }
 
     ngx_http_dynamic_update_upstream_del_check((ngx_cycle_t *)ngx_cycle, conf_server);
@@ -566,6 +579,16 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                     "ngx_http_dynamic_update: upstream_del_server error ");
             return;
+        }
+        del_flag = 1;
+    }
+
+    if (add_flag || del_flag) {
+
+        if (ngx_shmtx_trylock(&dynamic_accept_mutex)) {
+
+            ngx_http_dynamic_update_upstream_dump_conf(conf_server);
+            ngx_shmtx_unlock(&dynamic_accept_mutex);
         }
     }
 
@@ -1508,8 +1531,13 @@ ngx_http_dynamic_update_upstream_create_srv_conf(ngx_conf_t *cf)
         return NULL;
     }
 
-    duscf->consul_host.len = 0;
-    duscf->consul_host.data = NULL;
+    duscf->consul_host.len = NGX_CONF_UNSET_SIZE;
+    duscf->consul_host.data = NGX_CONF_UNSET_PTR;
+
+    duscf->consul_port = NGX_CONF_UNSET;
+
+    duscf->upstream_conf_path.len = NGX_CONF_UNSET_SIZE;
+    duscf->upstream_conf_path.data = NGX_CONF_UNSET_PTR;
 
     duscf->update_timeout = NGX_CONF_UNSET_MSEC;
     duscf->update_interval = NGX_CONF_UNSET_MSEC;
@@ -1517,6 +1545,8 @@ ngx_http_dynamic_update_upstream_create_srv_conf(ngx_conf_t *cf)
     duscf->delay_delete = NGX_CONF_UNSET_MSEC;
 
     duscf->strong_dependency = NGX_CONF_UNSET_UINT;
+
+    duscf->conf_file = NGX_CONF_UNSET_PTR;
 
     ngx_memzero(&duscf->us, sizeof(duscf->us));
 
@@ -1578,33 +1608,77 @@ ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_u
 }
 
 
-static void *
-ngx_http_dynamic_update_upstream_create_loc_conf(ngx_conf_t *cf)
+static ngx_int_t 
+ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle)
 {
-    ngx_http_dynamic_update_upstream_loc_conf_t      *conf;
+    u_char                                           *shared, *file;
+    size_t                                            size, cl;
+    ngx_shm_t                                         shm;
+    ngx_http_dynamic_update_upstream_srv_conf_t      *duscf;
 
-    conf = ngx_palloc(cf->pool,sizeof(ngx_http_dynamic_update_upstream_loc_conf_t));
-    if(conf == NULL){
-        return NULL;
+    duscf = dynamic_upstream_ctx->conf_server->conf;
+
+    if (duscf->conf_file->fd != NGX_INVALID_FILE) {
+        ngx_close_file(duscf->conf_file->fd);
+        duscf->conf_file->fd = NGX_INVALID_FILE;
     }
 
-    conf->upstream_conf_path.len = NGX_CONF_UNSET_SIZE;
-    conf->upstream_conf_path.data = NGX_CONF_UNSET_PTR;
+    duscf->conf_file->fd = ngx_open_file(duscf->upstream_conf_path.data,
+                                         NGX_FILE_TRUNCATE,
+                                         NGX_FILE_WRONLY,
+                                         NGX_FILE_DEFAULT_ACCESS);
 
-    return conf;
-}
+    if (duscf->conf_file->fd == NGX_INVALID_FILE) {
+        ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
+                           "open dump file \"%V\" failed", &duscf->upstream_conf_path);
+        return NGX_ERROR;
+    }
 
+    if (*dynamic_shared_created) {
+        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, cycle->log, 0, "config reload, dynamic update return");
 
-static char *
-ngx_http_dynamic_update_upstream_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
-{
-    ngx_http_dynamic_update_upstream_loc_conf_t *prev = parent;
-    ngx_http_dynamic_update_upstream_loc_conf_t *conf = child;
+        return NGX_OK;
+    }
 
-    ngx_conf_merge_str_value(conf->upstream_conf_path, prev->upstream_conf_path, 
-                             "/usr/local/nginx/conf");
+    /* cl should be equal to or greater than cache line size */
+    cl = 128;
+    size = cl                        /*shared created flag*/
+         + cl;                       /*dynamic_accept_mutex*/
 
-    return NGX_CONF_OK;
+    shm.size = size;
+    shm.log = cycle->log;
+    shm.name.len = sizeof("ngx_dynamic_update_upstream_shared_zone");
+    shm.name.data = (u_char *)"ngx_dynamic_update_upstream_shared_zone";
+
+    if (ngx_shm_alloc(&shm) != NGX_OK) {
+        return NGX_ERROR;
+    }
+    shared = shm.addr;
+
+    dynamic_shared_created = (ngx_atomic_t *)shared;
+
+#if (NGX_HAVE_ATOMIC_OPS)
+
+    file = NULL;
+
+#else
+
+    file = ngx_pnalloc(cycle->pool, cycle->lock_file.len + ngx_strlen("dynamic"));
+    if (file == NULL) {
+        return NGX_ERROR;
+    }
+
+    (void) ngx_sprintf(file, "%V%s%Z", &ngx_cycle->lock_file, "dynamic");
+
+#endif
+
+    if (ngx_shmtx_create(&dynamic_accept_mutex, (ngx_shmtx_sh_t *)(shared + 1*cl), file) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
+    ngx_atomic_fetch_add(dynamic_shared_created, 1);
+
+    return NGX_OK;
 }
 
 
@@ -2021,6 +2095,70 @@ update_recv_fail:
             peer->pc.name);
 
     ngx_http_dynamic_update_upstream_clean_event(peer);
+}
+
+
+static ngx_int_t
+ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_server_t *conf_server)
+{
+    ngx_buf_t                                       *b;
+    ngx_uint_t                                       i;
+    ngx_http_upstream_rr_peers_t                    *peers=NULL;
+    ngx_http_upstream_srv_conf_t                    *uscf=NULL;
+
+    uscf = conf_server->uscf;
+
+    b = ngx_create_temp_buf(conf_server->ctx.pool, ngx_pagesize);
+    if (b == NULL) {
+        ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
+                "dynamic_update_upstream_dump_conf: dump failed %V", uscf->host);
+
+        return NGX_ERROR;
+    }
+
+    if (uscf->peer.data != NULL) {
+        peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
+    }
+
+    b->last = ngx_snprintf(b->last,b->end - b->last, "upstream %V {\n", &uscf->host);
+    b->last = ngx_snprintf(b->last,b->end - b->last, "\tkeepalive %d;\n", peers->number);
+    b->last = ngx_snprintf(b->last,b->end - b->last, "\n\tconsul %V:%d%V update_interval=%dms update_timeout=%dms;\n", 
+                                                                   &conf_server->conf->consul_host,
+                                                                    conf_server->conf->consul_port,
+                                                                   &conf_server->conf->update_send,
+                                                                    conf_server->conf->update_interval,
+                                                                    conf_server->conf->update_timeout);
+    b->last = ngx_snprintf(b->last,b->end - b->last, "\tupstream_conf_path %V;\n\n", 
+                                                                   &conf_server->conf->upstream_conf_path);
+
+    for (i = 0; i < peers->number; i++) {
+        b->last = ngx_snprintf(b->last,b->end - b->last, "\tserver %V", &peers->peer[i].name);
+        b->last = ngx_snprintf(b->last,b->end - b->last, " weight=%d", peers->peer[i].weight);
+        b->last = ngx_snprintf(b->last,b->end - b->last, " max_fails=%d", peers->peer[i].max_fails);
+        b->last = ngx_snprintf(b->last,b->end - b->last, " fail_timeout=%ds;\n", peers->peer[i].fail_timeout);
+    }
+
+#if (NGX_HTTP_UPSTREAM_CHECK) 
+    b->last = ngx_snprintf(b->last,b->end - b->last, "\n\tcheck interval=1000 rise=3 fall=2 timeout=3000 type=http"
+                                                     " default_down=false;\n");
+    b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_http_send \"GET / HTTP/1.0\\r\\n\\r\\n\";\n");
+    b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_http_expect_alive http_2xx;\n");
+#endif
+
+    b->last = ngx_snprintf(b->last,b->end - b->last, "}\n");
+
+    ngx_lseek(conf_server->conf->conf_file->fd, 0, SEEK_SET);
+    ngx_write_fd(conf_server->conf->conf_file->fd, b->start, b->last - b->start);
+
+    if (ngx_ftruncate(conf_server->conf->conf_file->fd, b->last - b->start) != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
+                "dynamic_update_upstream_dump_conf: truncate file failed %V", 
+                &conf_server->conf->upstream_conf_path);
+
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
 }
 
 

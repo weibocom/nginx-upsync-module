@@ -15,6 +15,7 @@ Table of Contents
     * [update_interval](#update_interval)
     * [update_timeout](#update_timeout)
     * [strong_dependency](#strong_dependency)
+    * [upstream_conf_path](#upstream_conf_path)
     * [upstream_show](#upstream_show)
 * [Consul_interface](#consul_interface)
 * [TODO](#todo)
@@ -114,6 +115,18 @@ The parameters' meanings are:
 * strong_dependency
 
     when nginx start up if depending on consul, and consul is not working, nginx will boot failed, otherwise booting normally.
+
+[Back to TOC](#table-of-contents)       
+
+upstream_conf_path
+-----------
+`syntax: upstream_conf_path $path`
+
+default: /usr/local/nginx/conf/
+
+context: upstream
+
+description: dump the upstream conf to the $path.
 
 [Back to TOC](#table-of-contents)       
 
