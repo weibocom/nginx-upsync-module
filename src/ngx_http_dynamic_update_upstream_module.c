@@ -1569,7 +1569,8 @@ ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_u
 
     duscf = ngx_http_conf_upstream_srv_conf(uscf, ngx_http_dynamic_update_upstream_module);
 
-    if (duscf->consul_host.data == NULL && duscf->consul_host.len == 0) {
+    if (duscf->consul_host.data == NGX_CONF_UNSET_PTR 
+        && duscf->consul_host.len == NGX_CONF_UNSET_SIZE) {
         return NGX_CONF_OK;
     }
 
