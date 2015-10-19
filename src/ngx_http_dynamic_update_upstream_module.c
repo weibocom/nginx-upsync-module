@@ -32,8 +32,9 @@
 #define NGX_PAGESIZE 4 * 1024
 #define NGX_PAGE_COUNT 1024
 
-#define NGX_HTTP_RETRY_TIMES 3
+#define NGX_BACKEND_NUMBER   35  /* everypage(4K) can store backend number is 35 approximately*/
 
+#define NGX_HTTP_RETRY_TIMES 3
 #define NGX_HTTP_SOCKET_TIMEOUT 1
 
 
@@ -1557,6 +1558,7 @@ ngx_http_dynamic_update_upstream_create_srv_conf(ngx_conf_t *cf)
 static char *
 ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_uint_t num)
 {
+    u_char                                      *buf;
     ngx_http_upstream_srv_conf_t                *uscf = conf;
     ngx_http_dynamic_update_upstream_server_t   *conf_server;
     ngx_http_dynamic_update_upstream_srv_conf_t *duscf;
@@ -1593,6 +1595,21 @@ ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_u
 
     if (duscf->strong_dependency == NGX_CONF_UNSET_UINT) {
         duscf->strong_dependency = 0;
+    }
+
+    if (duscf->upstream_conf_path.len == NGX_CONF_UNSET_SIZE) {
+        buf = ngx_pcalloc(cf->pool, ngx_strlen("/usr/local/nginx/conf/upstreams/upstream_.conf")
+                          + uscf->host.len + 1);
+        ngx_sprintf(buf, "/usr/local/nginx/conf/upstreams/upstream_%V.conf", &uscf->host);
+
+        duscf->upstream_conf_path.data = buf;
+        duscf->upstream_conf_path.len = ngx_strlen("/usr/local/nginx/conf/upstreams/upstream_.conf")
+                                        + uscf->host.len;
+    }
+
+    duscf->conf_file = ngx_conf_open_file(cf->cycle, &duscf->upstream_conf_path); 
+    if (duscf->conf_file == NULL) {
+        return NGX_CONF_ERROR; 
     }
 
     conf_server->index = 0;
@@ -2102,22 +2119,29 @@ static ngx_int_t
 ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_server_t *conf_server)
 {
     ngx_buf_t                                       *b;
-    ngx_uint_t                                       i;
+    ngx_uint_t                                       i, page_numbers;
     ngx_http_upstream_rr_peers_t                    *peers=NULL;
     ngx_http_upstream_srv_conf_t                    *uscf=NULL;
 
     uscf = conf_server->uscf;
 
-    b = ngx_create_temp_buf(conf_server->ctx.pool, ngx_pagesize);
+    if (uscf->peer.data != NULL) {
+        peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
+
+    } else {
+        ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
+                "dynamic_update_upstream_dump_conf: no peers");
+
+        return NGX_ERROR;
+    }
+    page_numbers = peers->number / NGX_BACKEND_NUMBER + 1;
+
+    b = ngx_create_temp_buf(conf_server->ctx.pool, page_numbers * ngx_pagesize);
     if (b == NULL) {
         ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
                 "dynamic_update_upstream_dump_conf: dump failed %V", uscf->host);
 
         return NGX_ERROR;
-    }
-
-    if (uscf->peer.data != NULL) {
-        peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
     }
 
     b->last = ngx_snprintf(b->last,b->end - b->last, "upstream %V {\n", &uscf->host);

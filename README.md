@@ -1,7 +1,7 @@
 Name
 ====
 
-nginx-upsync-module - Nginx C module, nginx + consul server discovery service
+nginx-upsync-module - Nginx C module, nginx + consul server discovery service, dynamicly update upstream backend servers, needn't reload nginx.
 
 Table of Contents
 =================
@@ -41,7 +41,8 @@ http {
         server 127.0.0.1:11111;
 
         # all backend server will pull from consul when startup and will delete fake server
-        consul 127.0.0.1:8500/v1/kv/upstreams/test update_timeout=6m update_interval=3s strong_dependency=off;
+        consul 127.0.0.1:8500/v1/kv/upstreams/test update_timeout=6m update_interval=500ms strong_dependency=off;
+        upstream_conf_path /usr/local/nginx/conf/upstreams/upstream_test.conf;
     }
 
     upstream bar {
@@ -122,7 +123,7 @@ upstream_conf_path
 -----------
 `syntax: upstream_conf_path $path`
 
-default: /usr/local/nginx/conf/
+default: /usr/local/nginx/conf/upstreams/upstream_$host.conf
 
 context: upstream
 
