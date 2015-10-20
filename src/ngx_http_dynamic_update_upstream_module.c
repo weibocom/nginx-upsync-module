@@ -110,6 +110,8 @@ typedef struct {
 
     ngx_flag_t                               update_label;
 
+    ngx_shmtx_t                              dynamic_accept_mutex;
+
     ngx_peer_connection_t                    pc;
 
     ngx_event_handler_pt                     send_handler;
@@ -178,6 +180,7 @@ static void ngx_http_dynamic_update_upstream_process(
 
 static ngx_int_t ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle);
 static ngx_int_t ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle);
+static ngx_int_t ngx_http_dynamic_update_upstream_init_shm_mutex(ngx_cycle_t *cycle);
 static ngx_int_t ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle);
 
 static void ngx_http_dynamic_update_upstream_begin_handler(ngx_event_t *event);
@@ -255,7 +258,6 @@ static http_parser_settings settings = {
     .on_message_complete = 0
 };
 
-ngx_shmtx_t    dynamic_accept_mutex;
 ngx_atomic_t   dynamic_shared_created0;
 ngx_atomic_t  *dynamic_shared_created = &dynamic_shared_created0;
 
@@ -584,12 +586,12 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
         del_flag = 1;
     }
 
-    if (add_flag || del_flag) {
+    if (add_flag || del_flag || !conf_server->update_label) {
 
-        if (ngx_shmtx_trylock(&dynamic_accept_mutex)) {
+        if (ngx_shmtx_trylock(&conf_server->dynamic_accept_mutex)) {
 
             ngx_http_dynamic_update_upstream_dump_conf(conf_server);
-            ngx_shmtx_unlock(&dynamic_accept_mutex);
+            ngx_shmtx_unlock(&conf_server->dynamic_accept_mutex);
         }
     }
 
@@ -1629,39 +1631,73 @@ ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_u
 static ngx_int_t 
 ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle)
 {
-    u_char                                           *shared, *file;
-    size_t                                            size, cl;
-    ngx_shm_t                                         shm;
+    ngx_uint_t                                        i;
+    ngx_http_dynamic_update_upstream_server_t        *conf_server;
     ngx_http_dynamic_update_upstream_srv_conf_t      *duscf;
 
-    duscf = dynamic_upstream_ctx->conf_server->conf;
+    conf_server = dynamic_upstream_ctx->conf_server;
 
-    if (duscf->conf_file->fd != NGX_INVALID_FILE) {
-        ngx_close_file(duscf->conf_file->fd);
-        duscf->conf_file->fd = NGX_INVALID_FILE;
-    }
-
-    duscf->conf_file->fd = ngx_open_file(duscf->upstream_conf_path.data,
-                                         NGX_FILE_TRUNCATE,
-                                         NGX_FILE_WRONLY,
-                                         NGX_FILE_DEFAULT_ACCESS);
-
-    if (duscf->conf_file->fd == NGX_INVALID_FILE) {
-        ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                           "open dump file \"%V\" failed", &duscf->upstream_conf_path);
-        return NGX_ERROR;
-    }
-
-    if (*dynamic_shared_created) {
+    if (*dynamic_shared_created == dynamic_upstream_ctx->upstream_num) {
         ngx_log_debug0(NGX_LOG_DEBUG_HTTP, cycle->log, 0, "config reload, dynamic update return");
 
         return NGX_OK;
     }
 
+    if (ngx_http_dynamic_update_upstream_init_shm_mutex(cycle) != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, cycle->log, 0, "init_shm_mutex failed");
+
+        return NGX_ERROR;
+    }
+
+    for (i = 0; i < dynamic_upstream_ctx->upstream_num; i++) {
+
+        duscf = conf_server[i].conf;
+        if (duscf->conf_file->fd != NGX_INVALID_FILE) {
+            ngx_close_file(duscf->conf_file->fd);
+            duscf->conf_file->fd = NGX_INVALID_FILE;
+        }
+
+        duscf->conf_file->fd = ngx_open_file(duscf->upstream_conf_path.data,
+                                             NGX_FILE_TRUNCATE,
+                                             NGX_FILE_WRONLY,
+                                             NGX_FILE_DEFAULT_ACCESS);
+
+        if (duscf->conf_file->fd == NGX_INVALID_FILE) {
+            ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
+                            "open dump file \"%V\" failed", &duscf->upstream_conf_path);
+            return NGX_ERROR;
+        }
+    }
+
+    return NGX_OK;
+}
+
+
+static ngx_int_t
+ngx_http_dynamic_update_upstream_init_shm_mutex(ngx_cycle_t *cycle)
+{
+    u_char                                           *shared, *file;
+    size_t                                            size, cl;
+    ngx_shm_t                                         shm;
+    ngx_uint_t                                        i;
+    ngx_http_dynamic_update_upstream_server_t        *conf_server;
+
+    conf_server = dynamic_upstream_ctx->conf_server;
+
+    if (*dynamic_shared_created) {
+        shm.size = 128 * (*dynamic_shared_created);
+        shm.log = cycle->log;
+        shm.addr = (u_char *)(dynamic_shared_created);
+        shm.name.len = sizeof("ngx_dynamic_update_upstream_shared_zone");
+        shm.name.data = (u_char *)"ngx_dynamic_update_upstream_shared_zone";
+
+        ngx_shm_free(&shm);
+    }
+
     /* cl should be equal to or greater than cache line size */
     cl = 128;
-    size = cl                        /*shared created flag*/
-         + cl;                       /*dynamic_accept_mutex*/
+    size = cl                                                 /*shared created flag*/
+         + cl * dynamic_upstream_ctx->upstream_num;           /*dynamic_accept_mutex for every upstream*/
 
     shm.size = size;
     shm.log = cycle->log;
@@ -1675,26 +1711,31 @@ ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle)
 
     dynamic_shared_created = (ngx_atomic_t *)shared;
 
+    for (i = 0; i < dynamic_upstream_ctx->upstream_num; i++) {
+
 #if (NGX_HAVE_ATOMIC_OPS)
 
-    file = NULL;
+        file = NULL;
 
 #else
 
-    file = ngx_pnalloc(cycle->pool, cycle->lock_file.len + ngx_strlen("dynamic"));
-    if (file == NULL) {
-        return NGX_ERROR;
-    }
+        file = ngx_pcalloc(cycle->pool, cycle->lock_file.len + ngx_strlen("dynamic") + 3);
+        if (file == NULL) {
+            return NGX_ERROR;
+        }
 
-    (void) ngx_sprintf(file, "%V%s%Z", &ngx_cycle->lock_file, "dynamic");
+        (void) ngx_sprintf(file, "%V%s%d%Z", &ngx_cycle->lock_file, "dynamic", i);
 
 #endif
 
-    if (ngx_shmtx_create(&dynamic_accept_mutex, (ngx_shmtx_sh_t *)(shared + 1*cl), file) != NGX_OK) {
-        return NGX_ERROR;
+        if (ngx_shmtx_create(&conf_server[i].dynamic_accept_mutex, 
+                    (ngx_shmtx_sh_t *)(shared + (i + 1) * cl), file) != NGX_OK) {
+            return NGX_ERROR;
+        }
     }
 
-    ngx_atomic_fetch_add(dynamic_shared_created, 1);
+    ngx_atomic_cmp_set(dynamic_shared_created, *dynamic_shared_created, 
+            dynamic_upstream_ctx->upstream_num);
 
     return NGX_OK;
 }
@@ -2135,12 +2176,19 @@ ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_serv
 
         return NGX_ERROR;
     }
+
+    if (peers->number == 0) {
+        ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
+                "dynamic_update_upstream_dump_conf: peers number is zero");
+
+        return NGX_ERROR;
+    }
     page_numbers = peers->number / NGX_BACKEND_NUMBER + 1;
 
     b = ngx_create_temp_buf(conf_server->ctx.pool, page_numbers * ngx_pagesize);
     if (b == NULL) {
         ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
-                "dynamic_update_upstream_dump_conf: dump failed %V", uscf->host);
+                "dynamic_update_upstream_dump_conf: dump failed %V", &uscf->host);
 
         return NGX_ERROR;
     }
@@ -2171,6 +2219,13 @@ ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_serv
 #endif
 
     b->last = ngx_snprintf(b->last,b->end - b->last, "}\n");
+
+    if (b->last == b->start) {
+        ngx_log_error(NGX_LOG_WARN, conf_server->ctx.pool->log, 0,
+                "dynamic_update_upstream_dump_conf: sprintf to buf fail %V", &uscf->host);
+
+        return NGX_ERROR;
+    }
 
     ngx_lseek(conf_server->conf->conf_file->fd, 0, SEEK_SET);
     ngx_write_fd(conf_server->conf->conf_file->fd, b->start, b->last - b->start);
