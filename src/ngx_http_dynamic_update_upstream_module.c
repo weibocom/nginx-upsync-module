@@ -535,7 +535,6 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
             *p = '\0';
             index = ngx_atoi((u_char *)state.headers[i][1], 
                              (size_t)ngx_strlen((u_char *)state.headers[i][1]));
-
             break;
         }
     }
@@ -550,8 +549,7 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
         conf_server->index = index;
     }
 
-    if (ngx_http_dynamic_update_upstream_parse_json(buf->pos, 
-                conf_server) == NGX_ERROR) {
+    if (ngx_http_dynamic_update_upstream_parse_json(buf->pos, conf_server) == NGX_ERROR) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                 "dynamic update upstream parse json error ");
         return;
@@ -561,7 +559,6 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
             "dynamic update upstream parse json succeed");
 
     ngx_http_dynamic_update_upstream_add_check((ngx_cycle_t *)ngx_cycle, conf_server);
-
     if (ctx->add_upstream.nelts > 0) {
 
         if (ngx_http_dynamic_update_upstream_add_server((ngx_cycle_t *)ngx_cycle, 
@@ -574,7 +571,6 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
     }
 
     ngx_http_dynamic_update_upstream_del_check((ngx_cycle_t *)ngx_cycle, conf_server);
-
     if (ctx->del_upstream.nelts > 0) {
 
         if (ngx_http_dynamic_update_upstream_del_server((ngx_cycle_t *)ngx_cycle, 
@@ -586,13 +582,17 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
         del_flag = 1;
     }
 
-    if (add_flag || del_flag || !conf_server->update_label) {
-
+    if (add_flag || del_flag) {
         if (ngx_shmtx_trylock(&conf_server->dynamic_accept_mutex)) {
 
             ngx_http_dynamic_update_upstream_dump_conf(conf_server);
             ngx_shmtx_unlock(&conf_server->dynamic_accept_mutex);
         }
+    }
+
+    if (!conf_server->update_label && update_flag) {
+        conf_server->update_label = 1;
+        update_flag = 0;
     }
 
     return;
@@ -1251,6 +1251,10 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
 
         if (update_label) {
             ngx_http_dynamic_update_upstream_event_init(tmp_peers, conf_server, NGX_DEL);
+
+        } else {
+            ngx_free(tmp_peers);
+            tmp_peers = NULL;
         }
 
         return NGX_OK;
@@ -1650,17 +1654,6 @@ ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle)
             ngx_close_file(duscf->conf_file->fd);
             duscf->conf_file->fd = NGX_INVALID_FILE;
         }
-
-        duscf->conf_file->fd = ngx_open_file(duscf->upstream_conf_path.data,
-                                             NGX_FILE_TRUNCATE,
-                                             NGX_FILE_WRONLY,
-                                             NGX_FILE_DEFAULT_ACCESS);
-
-        if (duscf->conf_file->fd == NGX_INVALID_FILE) {
-            ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                            "open dump file \"%V\" failed", &duscf->upstream_conf_path);
-            return NGX_ERROR;
-        }
     }
 
     return NGX_OK;
@@ -1811,11 +1804,6 @@ ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
 
         ngx_destroy_pool(pool);
         ctx->pool = NULL;
-
-        if (!conf_server[i].update_label && update_flag) {
-            conf_server[i].update_label = 1;
-            update_flag = 0;
-        }
     }
 
     ngx_http_dynamic_update_upstream_add_timers(cycle);
@@ -2158,6 +2146,7 @@ ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_serv
     ngx_uint_t                                       i, page_numbers;
     ngx_http_upstream_rr_peers_t                    *peers=NULL;
     ngx_http_upstream_srv_conf_t                    *uscf=NULL;
+    ngx_http_dynamic_update_upstream_srv_conf_t     *duscf;
 
     uscf = conf_server->uscf;
 
@@ -2214,10 +2203,14 @@ ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_serv
 
     b->last = ngx_snprintf(b->last,b->end - b->last, "}\n");
 
-    if (b->last == b->start) {
-        ngx_log_error(NGX_LOG_WARN, conf_server->ctx.pool->log, 0,
-                "dynamic_update_upstream_dump_conf: sprintf to buf fail %V", &uscf->host);
-
+    duscf = conf_server->conf;
+    duscf->conf_file->fd = ngx_open_file(duscf->upstream_conf_path.data,
+                                         NGX_FILE_TRUNCATE,
+                                         NGX_FILE_WRONLY,
+                                         NGX_FILE_DEFAULT_ACCESS);
+    if (duscf->conf_file->fd == NGX_INVALID_FILE) {
+        ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
+                        "open dump file \"%V\" failed", &duscf->upstream_conf_path);
         return NGX_ERROR;
     }
 
@@ -2231,6 +2224,7 @@ ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_serv
 
         return NGX_ERROR;
     }
+    ngx_close_file(duscf->conf_file->fd);
 
     return NGX_OK;
 }
