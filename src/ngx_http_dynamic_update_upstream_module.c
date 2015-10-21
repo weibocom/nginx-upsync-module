@@ -1637,12 +1637,6 @@ ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle)
 
     conf_server = dynamic_upstream_ctx->conf_server;
 
-    if (*dynamic_shared_created == dynamic_upstream_ctx->upstream_num) {
-        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, cycle->log, 0, "config reload, dynamic update return");
-
-        return NGX_OK;
-    }
-
     if (ngx_http_dynamic_update_upstream_init_shm_mutex(cycle) != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0, "init_shm_mutex failed");
 
