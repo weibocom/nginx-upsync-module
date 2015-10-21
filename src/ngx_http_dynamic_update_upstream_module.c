@@ -1162,6 +1162,8 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
 
     update_label = conf_server->update_label;
 
+    u_char *namep = NULL;
+    struct sockaddr *saddr = NULL;
     len = sizeof(struct sockaddr);
 
     if (uscf->peer.data != NULL) {
@@ -1224,10 +1226,35 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
 
             if (j == us->naddrs) {
 
-                peers->peer[n].sockaddr = tmp_peers->peer[i].sockaddr;
+                if (!update_label) {
+
+                    if ((saddr = ngx_calloc(len, cycle->log)) == NULL) {
+                        goto invalid;
+                    }
+                    ngx_memcpy(saddr, tmp_peers->peer[i].sockaddr, len);
+                    peers->peer[n].sockaddr = saddr;
+
+                } else {
+                    peers->peer[n].sockaddr = tmp_peers->peer[i].sockaddr;
+                }
+
                 peers->peer[n].socklen = tmp_peers->peer[i].socklen;
                 peers->peer[n].name.len = tmp_peers->peer[i].name.len;
-                peers->peer[n].name.data = tmp_peers->peer[i].name.data;
+
+                if (!update_label) {
+
+                    if ((namep = ngx_calloc(tmp_peers->peer[i].name.len,
+                                            cycle->log)) == NULL) {
+                        goto invalid;
+                    }
+                    ngx_memcpy(namep, tmp_peers->peer[i].name.data,
+                                tmp_peers->peer[i].name.len);
+                    peers->peer[n].name.data = namep;
+                } else {
+
+                    peers->peer[n].name.data = tmp_peers->peer[i].name.data;
+                }
+
                 peers->peer[n].max_fails = tmp_peers->peer[i].max_fails;
                 peers->peer[n].fail_timeout = tmp_peers->peer[i].fail_timeout;
                 peers->peer[n].down = tmp_peers->peer[i].down;
@@ -1251,10 +1278,10 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
 
         if (update_label) {
             ngx_http_dynamic_update_upstream_event_init(tmp_peers, conf_server, NGX_DEL);
+        }
 
-        } else {
-            ngx_free(tmp_peers);
-            tmp_peers = NULL;
+        if (!update_flag) {
+            update_flag = 1;
         }
 
         return NGX_OK;
@@ -2215,17 +2242,18 @@ ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_serv
         return NGX_ERROR;
     }
 
-    ngx_lseek(conf_server->conf->conf_file->fd, 0, SEEK_SET);
-    ngx_write_fd(conf_server->conf->conf_file->fd, b->start, b->last - b->start);
+    ngx_lseek(duscf->conf_file->fd, 0, SEEK_SET);
+    ngx_write_fd(duscf->conf_file->fd, b->start, b->last - b->start);
 
-    if (ngx_ftruncate(conf_server->conf->conf_file->fd, b->last - b->start) != NGX_OK) {
+    if (ngx_ftruncate(duscf->conf_file->fd, b->last - b->start) != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
                 "dynamic_update_upstream_dump_conf: truncate file failed %V", 
-                &conf_server->conf->upstream_conf_path);
+                &duscf->upstream_conf_path);
 
         return NGX_ERROR;
     }
     ngx_close_file(duscf->conf_file->fd);
+    duscf->conf_file->fd = NGX_INVALID_FILE;
 
     return NGX_OK;
 }
