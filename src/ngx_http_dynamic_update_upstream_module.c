@@ -1681,7 +1681,8 @@ ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle)
             ngx_close_file(duscf->conf_file->fd);
             duscf->conf_file->fd = NGX_INVALID_FILE;
         }
-        ngx_change_file_access(duscf->upstream_conf_path.data, S_IROTH|S_IWOTH|S_IXOTH);
+        ngx_change_file_access(duscf->upstream_conf_path.data, 
+                               S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH|S_IWOTH);
     }
 
     return NGX_OK;
