@@ -430,7 +430,7 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
     p = (u_char *)ngx_strchr(value[1].data, '/');
     if (p == NULL) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                            "consul_server: please input consul upstream key in upstream");
+                "dynamic_update_upstream_consul_server: please input consul upstream key in upstream");
         return NGX_CONF_ERROR;
     }
     duscf->update_send.data = p;
@@ -447,7 +447,7 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
         duscf->consul_port = ngx_atoi(p + 1, duscf->update_send.data - p - 1);
         if (duscf->consul_port < 1 || duscf->consul_port > 65535) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                "consul_server: consul server port is invalid");
+                        "dynamic_update_upstream_consul_server: consul server port is invalid");
             return NGX_CONF_ERROR;
         }
 
@@ -463,7 +463,7 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
     if (ngx_parse_url(cf->pool, &u) != NGX_OK) {
         if (u.err) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                               "%s in upstream \"%V\"", u.err, &u.url);
+                        "dynamic_update_upstream_consul_server: %s in upstream \"%V\"", u.err, &u.url);
         }
 
         return NGX_CONF_ERROR;
@@ -481,7 +481,7 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
 invalid:
 
     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                       "consul invalid parameter \"%V\"", &value[i]);
+                "dynamic_update_upstream_consul_server: consul invalid parameter \"%V\"", &value[i]);
 
     return NGX_CONF_ERROR;
 }
@@ -540,9 +540,9 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
     }
 
     if (index == conf_server->index) {
-        ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0,
-                "dynamic update upstream index is not change in upstream: %V",
-                &conf->consul_host);
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "[NOTICE]:"
+                "dynamic_update_upstream_process: index is not change in upstream: %V",
+                &conf->upstream_conf_path);
         return;
 
     } else {
@@ -551,12 +551,12 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
 
     if (ngx_http_dynamic_update_upstream_parse_json(buf->pos, conf_server) == NGX_ERROR) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "dynamic update upstream parse json error ");
+                "dynamic_update_upstream_process: parse json error ");
         return;
     }
 
     ngx_log_debug0(NGX_LOG_DEBUG, ngx_cycle->log, 0,
-            "dynamic update upstream parse json succeed");
+            "dynamic_update_upstream_process: parse json succeed");
 
     ngx_http_dynamic_update_upstream_add_check((ngx_cycle_t *)ngx_cycle, conf_server);
     if (ctx->add_upstream.nelts > 0) {
@@ -564,7 +564,7 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
         if (ngx_http_dynamic_update_upstream_add_server((ngx_cycle_t *)ngx_cycle, 
                     conf_server) != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                    "ngx_http_dynamic_update: upstream_add_server error ");
+                    "dynamic_update_upstream_process: upstream add server error ");
             return;
         }
         add_flag = 1;
@@ -576,7 +576,7 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
         if (ngx_http_dynamic_update_upstream_del_server((ngx_cycle_t *)ngx_cycle, 
                     conf_server) != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                    "ngx_http_dynamic_update: upstream_del_server error ");
+                    "dynamic_update_upstream_process: upstream del server error ");
             return;
         }
         del_flag = 1;
@@ -636,7 +636,7 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
         port = ngx_strlchr(p, last, ':');
         if (port == NULL) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "upstream_add_server: has no port in %s", p);
+                    "dynamic_update_upstream_add_server: has no port in %s", p);
             j--;
             continue;
         }
@@ -644,7 +644,7 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
         n = ngx_atoi(port + 1, last - port - 1);
         if (n < 1 || n > 65535) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "upstream_add_server: invalid port in %s", p);
+                    "dynamic_update_upstream_add_server: invalid port in %s", p);
             j--;
             continue;
         }
@@ -660,7 +660,7 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
 
         if (sin->sin_addr.s_addr == INADDR_NONE) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "upstream_add_server: invalid ip in %s", p);
+                    "dynamic_update_upstream_add_server: invalid ip in %s", p);
             j--;
 
             ngx_free(sin);
@@ -907,7 +907,7 @@ ngx_http_dynamic_update_upstream_copy_peer(ngx_cycle_t *cycle,
 
 invalid:
     ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-            "upstream_add_server copy failed \"%V\" in %s:%ui",
+            "dynamic_update_upstream_copy_peer: copy failed \"%V\" in %s:%ui",
             &uscf->host, uscf->file_name, uscf->line);
 
     if (peers != NULL) {
@@ -940,7 +940,7 @@ ngx_http_dynamic_update_upstream_add_peer(ngx_cycle_t *cycle,
 
         if (n == 0) {
             ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                    "no servers to add in upstream_add_server \"%V\" in %s:%ui",
+                    "dynamic_update_upstream_add_peer: no servers to add \"%V\" in %s:%ui",
                     &uscf->host, uscf->file_name, uscf->line);
             return NGX_ERROR;
         }
@@ -1065,7 +1065,7 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
     pool = ngx_create_pool(ngx_pagesize, cycle->log);
     if (pool == NULL) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                "upstream_del_server: no enough memory");
+                "dynamic_update_upstream_del_server: no enough memory");
         return NGX_ERROR;
     }
 
@@ -1091,7 +1091,7 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
         n = ngx_atoi(port + 1, last - port - 1);
         if (n < 1 || n > 65535) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "upstream_del_server: invalid port in %s", p);
+                    "dynamic_update_upstream_del_server: invalid port in %s", p);
             j--;
             continue;
         }
@@ -1107,7 +1107,7 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
 
         if (sin->sin_addr.s_addr == INADDR_NONE) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "upstream_del_server: invalid ip in %s", p);
+                    "dynamic_update_upstream_del_server: invalid ip in %s", p);
             j--;
             continue;
         }
@@ -1172,8 +1172,8 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
     }
 
     if (tmp_peers->number == us->naddrs) {
-        ngx_log_error(NGX_LOG_WARN, cycle->log, 0,
-                "upstream %V backend cannt be null, cannt delete all", &uscf->host);
+        ngx_log_error(NGX_LOG_ERR, cycle->log, 0, "[WARN]:"
+                "dynamic_update_upstream_del_peer: upstream \"%V\" cannt delete all", &uscf->host);
 
         return NGX_OK;
     }
@@ -1184,8 +1184,7 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
 
         if (tmp_peers->number < us->naddrs) {
             ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                    "no servers to del in upstream_del_server \"%V\" in %s:%ui",
-                    &uscf->host, uscf->file_name, uscf->line);
+                    "dynamic_update_upstream_del_peer: no servers to del in \"%V\"", &uscf->host);
             goto invalid;
         }
 
@@ -1291,8 +1290,7 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
 
 invalid:
     ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-            "upstream_del_server del failed \"%V\" in %s:%ui",
-            &uscf->host, uscf->file_name, uscf->line);
+            "dynamic_update_upstream_del_peer: del failed \"%V\"", &uscf->host);
 
     if (peers != NULL) {
         ngx_http_dynamic_update_upstream_free(peers);
@@ -1379,7 +1377,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
     cJSON *root = cJSON_Parse((char *)buf);
     if (root == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "dynamic_update_upstream_parse_json root error");
+                "dynamic_update_upstream_parse_json: root error");
 
         return NGX_ERROR;
     }
@@ -1389,7 +1387,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
                 sizeof(*upstream_conf)) != NGX_OK)
     {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "dynamic_update_upstream_init_upstream_conf alloc error");
+                "dynamic_update_upstream_parse_json: array init error");
 
         return NGX_ERROR;
     }
@@ -1437,7 +1435,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             cJSON *sub_root = cJSON_Parse((char *)p);
             if (sub_root == NULL) {
                 ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                    "dynamic_update_upstream_parse_json root error");
+                    "dynamic_update_upstream_parse_json: root error");
 
                 continue;
             }
@@ -1669,7 +1667,8 @@ ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle)
     conf_server = dynamic_upstream_ctx->conf_server;
 
     if (ngx_http_dynamic_update_upstream_init_shm_mutex(cycle) != NGX_OK) {
-        ngx_log_error(NGX_LOG_ERR, cycle->log, 0, "init_shm_mutex failed");
+        ngx_log_error(NGX_LOG_ERR, cycle->log, 0, "dynamic_update_upstream_init_module:"
+                " init shm mutex failed");
 
         return NGX_ERROR;
     }
@@ -1856,8 +1855,7 @@ ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle)
     conf = peer->conf;
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, cycle->log, 0,
-            "http update upstream add_timers, shm_name: %V",
-            peer->pc.name);
+            "dynamic_update_upstream_add_timers: shm_name: %V", peer->pc.name);
 
     srandom(ngx_pid);
     for (i = 0; i < dynamic_upstream_ctx->upstream_num; i++) {
@@ -1906,7 +1904,7 @@ ngx_http_dynamic_update_upstream_begin_handler(ngx_event_t *event)
     peer = event->data;
     if (peer == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "ngx_http_dynamic_update_upstream_begin_handler wrong");
+                "ngx_http_dynamic_update_upstream_begin_handler: peer is null");
         return;
     }
 
@@ -1955,7 +1953,7 @@ ngx_http_dynamic_update_upstream_connect_handler(ngx_event_t *event)
 
     if (rc == NGX_ERROR || rc == NGX_DECLINED) {
         ngx_log_error(NGX_LOG_ERR, event->log, 0,
-                "update upstream cant connect with peer: %V ",
+                "dynamic_update_upstream_connect_handler: cant connect with peer: %V ",
                 peer->pc.name);
         return;
     }
@@ -2044,7 +2042,7 @@ ngx_http_dynamic_update_upstream_send_handler(ngx_event_t *event)
 
 update_send_fail:
     ngx_log_error(NGX_LOG_ERR, event->log, 0,
-            "dynamic update upstream send error with peer: %V", peer->pc.name);
+            "dynamic_update_upstream_send: send error with peer: %V", peer->pc.name);
 
     ngx_http_dynamic_update_upstream_clean_event(peer);
 }
@@ -2161,8 +2159,7 @@ ngx_http_dynamic_update_upstream_recv_handler(ngx_event_t *event)
 
 update_recv_fail:
     ngx_log_error(NGX_LOG_ERR, event->log, 0,
-            "dynamic_update_upstream_recv: recv error with peer: %V",
-            peer->pc.name);
+            "dynamic_update_upstream_recv: recv error with peer: %V", peer->pc.name);
 
     ngx_http_dynamic_update_upstream_clean_event(peer);
 }
@@ -2239,22 +2236,35 @@ ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_serv
                                          NGX_FILE_DEFAULT_ACCESS);
     if (duscf->conf_file->fd == NGX_INVALID_FILE) {
         ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
-                        "open dump file \"%V\" failed", &duscf->upstream_conf_path);
+                        "dynamic_update_upstream_dump_conf: open dump file \"%V\" failed", 
+                        &duscf->upstream_conf_path);
         return NGX_ERROR;
     }
 
     ngx_lseek(duscf->conf_file->fd, 0, SEEK_SET);
-    ngx_write_fd(duscf->conf_file->fd, b->start, b->last - b->start);
+    if (ngx_write_fd(duscf->conf_file->fd, b->start, b->last - b->start) == NGX_ERROR) {
+        ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
+                "dynamic_update_upstream_dump_conf: write file failed %V", 
+                &duscf->upstream_conf_path);
+        ngx_close_file(duscf->conf_file->fd);
+
+        return NGX_ERROR;
+    }
 
     if (ngx_ftruncate(duscf->conf_file->fd, b->last - b->start) != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
                 "dynamic_update_upstream_dump_conf: truncate file failed %V", 
                 &duscf->upstream_conf_path);
+        ngx_close_file(duscf->conf_file->fd);
 
         return NGX_ERROR;
     }
     ngx_close_file(duscf->conf_file->fd);
     duscf->conf_file->fd = NGX_INVALID_FILE;
+
+    ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0, "[NOTICE]:"
+                  "dynamic_update_upstream_dump_conf: dump conf file %V succeed, server numbers is %d", 
+                  &duscf->upstream_conf_path, peers->number);
 
     return NGX_OK;
 }
@@ -2285,7 +2295,7 @@ ngx_http_dynamic_update_upstream_init_peer(ngx_event_t *event)
         pool = ngx_create_pool(NGX_PAGE_COUNT * ngx_pagesize, ngx_cycle->log);
         if (pool == NULL) {
             ngx_log_error(NGX_LOG_ERR, event->log, 0, 
-                        "dynamic_update_upstream_begin: recv no enough memory");
+                        "dynamic_update_upstream_init_peer: creat pool, no enough memory");
             return NGX_ERROR;
         }
         ctx->pool = pool;
@@ -2840,7 +2850,7 @@ ngx_http_dynamic_update_upstream_clear_all_events()
         return;
     }
 
-    ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0,
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "[WARN]:"
             "dynamic_update_upstream_clear_all_events: on %P ", ngx_pid);
 
     has_cleared = 1;
@@ -2881,14 +2891,14 @@ ngx_http_dynamic_update_upstream_get_all(ngx_cycle_t *cycle,
 
     if (client == NULL) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "ngx_http_dynamic_update_upstream_get_all: http client create error");
+                "dynamic_update_upstream_get_all: http client create error");
         return NGX_ERROR;
     }
 
     ngx_int_t status = ngx_http_client_conn(client);
     if (status != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "ngx_http_dynamic_update_upstream_get_all: http client conn error");
+                "dynamic_update_upstream_get_all: http client conn error");
 
         ngx_http_client_destroy(client);
         return NGX_ERROR;
@@ -2900,7 +2910,7 @@ ngx_http_dynamic_update_upstream_get_all(ngx_cycle_t *cycle,
 
     if (ngx_http_client_recv(client, &response, 0) <= 0) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "ngx_http_dynamic_update_upstream_get_all: http client recv fail");
+                "dynamic_update_upstream_get_all: http client recv fail");
 
         if (response != NULL) {
             ngx_free(response);
@@ -2951,14 +2961,14 @@ ngx_http_create_client(ngx_cycle_t *cycle, ngx_http_dynamic_update_upstream_serv
 
     if (setsockopt(client->sd, SOL_SOCKET, SO_SNDTIMEO, (void *) &tv_timeout, sizeof(struct timeval)) < 0) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "conf_client_create: setsockopt SO_SNDTIMEO error");
+                "ngx_http_create_client: setsockopt SO_SNDTIMEO error");
         ngx_http_client_destroy(client);
         return NULL;
     }
 
     if (setsockopt(client->sd, SOL_SOCKET, SO_RCVTIMEO, (void *) &tv_timeout, sizeof(struct timeval)) < 0) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "conf_client_create: setsockopt SO_RCVTIMEO error");
+                "ngx_http_create_client: setsockopt SO_RCVTIMEO error");
         ngx_http_client_destroy(client);
         return NULL;
     }
