@@ -197,10 +197,10 @@ static ngx_int_t ngx_http_dynamic_update_upstream_init_peer(ngx_event_t *event);
 static ngx_int_t ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle, 
         ngx_http_dynamic_update_upstream_server_t *conf_server);
 static ngx_int_t ngx_http_dynamic_update_upstream_copy_peer(ngx_cycle_t *cycle,
-        ngx_http_upstream_srv_conf_t *uscf, ngx_http_upstream_server_t *us,
+        ngx_http_upstream_srv_conf_t *uscf, ngx_array_t *servers,
         ngx_http_dynamic_update_upstream_server_t *conf_server);
 static ngx_int_t ngx_http_dynamic_update_upstream_add_peer(ngx_cycle_t *cycle, 
-        ngx_http_upstream_srv_conf_t *uscf, ngx_http_upstream_server_t  *us);
+        ngx_http_upstream_srv_conf_t *uscf, ngx_array_t *servers);
 static void ngx_http_dynamic_update_upstream_add_check(ngx_cycle_t *cycle, 
         ngx_http_dynamic_update_upstream_server_t *conf_server);
 
@@ -603,15 +603,14 @@ static ngx_int_t
 ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle, 
         ngx_http_dynamic_update_upstream_server_t *conf_server)
 {
-    time_t                                   fail_timeout = 0;
     u_char                                  *port, *p, *last, *pp;
-    ngx_int_t                                n, j;
-    ngx_uint_t                               i, weight = 0, max_fails = 0;
-    ngx_uint_t                               down = 0, backup = 0;
+    ngx_int_t                                n;
+    ngx_uint_t                               i;
     ngx_addr_t                              *addrs;
+    ngx_array_t                              servers;  /* ngx_http_upstream_server_t */
     ngx_http_update_conf_t                  *conf;
+    ngx_http_upstream_server_t              *server;
     ngx_http_upstream_srv_conf_t            *uscf;
-    ngx_http_upstream_server_t               us;
     ngx_http_dynamic_update_upstream_ctx_t  *ctx;
 
     struct sockaddr_in  *sin;
@@ -620,14 +619,14 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
 
     ctx = &conf_server->ctx;
 
-    ngx_memzero(&us, sizeof(ngx_http_upstream_server_t));
+    if (ngx_array_init(&servers, ctx->pool, 16, sizeof(*server)) != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
+                "dynamic_update_upstream_add_server: alloc error");
 
-    addrs = ngx_calloc(ctx->add_upstream.nelts * sizeof(ngx_addr_t), cycle->log);
-    if (addrs == NULL) {
         return NGX_ERROR;
     }
 
-    for (i = 0, j = 0; i < ctx->add_upstream.nelts; i++, j++) {
+    for (i = 0; i < ctx->add_upstream.nelts; i++) {
         conf = (ngx_http_update_conf_t *)ctx->add_upstream.elts + i;
 
         p = conf->sockaddr;
@@ -637,7 +636,6 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
         if (port == NULL) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
                     "dynamic_update_upstream_add_server: has no port in %s", p);
-            j--;
             continue;
         }
 
@@ -645,7 +643,6 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
         if (n < 1 || n > 65535) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
                     "dynamic_update_upstream_add_server: invalid port in %s", p);
-            j--;
             continue;
         }
 
@@ -661,74 +658,49 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
         if (sin->sin_addr.s_addr == INADDR_NONE) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
                     "dynamic_update_upstream_add_server: invalid ip in %s", p);
-            j--;
-
             ngx_free(sin);
             continue;
         }
 
-        addrs[j].sockaddr = (struct sockaddr *) sin;
-        addrs[j].socklen = sizeof(struct sockaddr_in);
+        addrs = ngx_calloc(sizeof(ngx_addr_t), cycle->log);
+        if (addrs == NULL) {
+            return NGX_ERROR;
+        }
+
+        addrs->sockaddr = (struct sockaddr *) sin;
+        addrs->socklen = sizeof(struct sockaddr_in);
 
         pp = ngx_calloc(last - p, cycle->log);
         if (pp == NULL) {
             goto invalid;
         }
 
-        addrs[j].name.len = ngx_sprintf(pp, "%s", p) - pp;
-        addrs[j].name.data = pp;
+        addrs->name.len = ngx_sprintf(pp, "%s", p) - pp;
+        addrs->name.data = pp;
 
-        if (conf->weight != 0) {
-            weight = conf->weight;
-        }
-        if (conf->max_fails != 0) {
-            max_fails = conf->max_fails;
-        }
-        if (conf->fail_timeout != 0) {
-            fail_timeout = conf->fail_timeout;
-        }
-        if (conf->down != 0) {
-            down = conf->down;
-        }
-        if (conf->backup != 0) {
-            backup = conf->backup;
-        }
+        server = ngx_array_push(&servers);
+        ngx_memzero(server, sizeof(ngx_http_upstream_server_t));
+
+        server->addrs = addrs;
+        server->naddrs = 1;
+
+        server->down = conf->down;
+        server->backup = conf->backup;
+        server->weight = conf->weight;
+        server->max_fails = conf->max_fails;
+        server->fail_timeout = conf->fail_timeout;
     }
 
-    us.down = down;
-    us.backup = backup;
-
-    us.addrs = addrs;
-    us.naddrs = j;
-
-    if (weight != 0) {
-        us.weight = weight;
-    } else {
-        us.weight = 1;
-    }
-
-    if (max_fails != 0) {
-        us.max_fails = max_fails;
-    } else {
-        us.max_fails = 2;
-    }
-
-    if (fail_timeout != 0) {
-        us.fail_timeout = fail_timeout;
-    } else {
-        us.fail_timeout = 10;
-    }
-
-    if (us.naddrs > 0) {
+    if (servers.nelts > 0) {
         if (ngx_http_dynamic_update_upstream_copy_peer(cycle, uscf, 
-                    &us, conf_server) 
+                    &servers, conf_server) 
                 != NGX_OK) 
         {
             goto invalid;
         }
 
         if (ngx_http_dynamic_update_upstream_add_peer(cycle, uscf, 
-                    &us) != NGX_OK) {
+                    &servers) != NGX_OK) {
             goto invalid;
         }
     }
@@ -737,17 +709,19 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
 
 invalid:
 
-    for (i = 0; i < ctx->add_upstream.nelts; i++) {
-        if (addrs[i].sockaddr != NULL) {
-            ngx_free(addrs[i].sockaddr);
+    for (i = 0; i < servers.nelts; i++) {
+        server = (ngx_http_upstream_server_t *)servers.elts + i;
+
+        if (server->addrs->sockaddr != NULL) {
+            ngx_free(server->addrs->sockaddr);
         }
 
-        if (addrs[i].name.data != NULL) {
-            ngx_free(addrs[i].name.data);
+        if (server->addrs->name.data != NULL) {
+            ngx_free(server->addrs->name.data);
         }
+        
+        ngx_free(server->addrs);
     }
-    ngx_free(addrs);
-    addrs = NULL;
 
     return NGX_ERROR;
 }
@@ -755,7 +729,7 @@ invalid:
 
 static ngx_int_t
 ngx_http_dynamic_update_upstream_copy_peer(ngx_cycle_t *cycle,
-        ngx_http_upstream_srv_conf_t *uscf, ngx_http_upstream_server_t *us,
+        ngx_http_upstream_srv_conf_t *uscf, ngx_array_t *servers,
         ngx_http_dynamic_update_upstream_server_t *conf_server)
 {
     ngx_uint_t                                   i, n, m, len, num;
@@ -769,7 +743,7 @@ ngx_http_dynamic_update_upstream_copy_peer(ngx_cycle_t *cycle,
     struct sockaddr *saddr = NULL;
     len = sizeof(struct sockaddr);
 
-    num = us->naddrs;
+    num = servers->nelts;
 
     if (uscf->peer.data != NULL) {
         tmp_peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
@@ -906,9 +880,8 @@ ngx_http_dynamic_update_upstream_copy_peer(ngx_cycle_t *cycle,
     return NGX_OK;
 
 invalid:
-    ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-            "dynamic_update_upstream_copy_peer: copy failed \"%V\" in %s:%ui",
-            &uscf->host, uscf->file_name, uscf->line);
+    ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
+            "dynamic_update_upstream_copy_peer: copy failed \"%V\"", &uscf->host);
 
     if (peers != NULL) {
         ngx_http_dynamic_update_upstream_free(peers);
@@ -926,54 +899,56 @@ invalid:
 
 static ngx_int_t
 ngx_http_dynamic_update_upstream_add_peer(ngx_cycle_t *cycle,
-        ngx_http_upstream_srv_conf_t *uscf, ngx_http_upstream_server_t *us)
+        ngx_http_upstream_srv_conf_t *uscf, ngx_array_t *servers)
 {
-    ngx_uint_t                     i, n, w, m;
+    ngx_uint_t                     i=0, n=0, w=0, m=0;
+    ngx_http_upstream_server_t    *server=NULL;
     ngx_http_upstream_rr_peers_t  *peers=NULL;
 
     peers = uscf->peer.data;
 
-    if (us->naddrs) {
+    if (servers->nelts == 0) {
+        ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
+                "dynamic_update_upstream_add_peer: no servers to add \"%V\"", &uscf->host);
+        return NGX_ERROR;
+    }
 
-        n = us->naddrs + peers->number;
-        w = us->naddrs * us->weight + peers->total_weight;
+    if (servers->nelts) {
 
-        if (n == 0) {
-            ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                    "dynamic_update_upstream_add_peer: no servers to add \"%V\" in %s:%ui",
-                    &uscf->host, uscf->file_name, uscf->line);
-            return NGX_ERROR;
-        }
-
+        n = servers->nelts + peers->number;
         m = peers->number;
+
+        for (i = 0; i < servers->nelts; i++) {
+
+            server = (ngx_http_upstream_server_t *)servers->elts + i;
+            if (server->backup) {
+                continue;
+            }
+
+            peers->peer[m].sockaddr = server->addrs->sockaddr;
+            peers->peer[m].socklen = server->addrs->socklen;
+            peers->peer[m].name = server->addrs->name;
+            peers->peer[m].max_fails = server->max_fails;
+            peers->peer[m].fail_timeout = server->fail_timeout;
+            peers->peer[m].down = server->down;
+            peers->peer[m].weight = server->weight;
+            peers->peer[m].effective_weight = server->weight;
+            peers->peer[m].current_weight = 0;
+
+#if (NGX_HTTP_UPSTREAM_CHECK) 
+            ngx_uint_t index = ngx_http_upstream_check_add_dynamic_peer(cycle->pool, uscf, server->addrs);
+            peers->peer[m].check_index = index;
+#endif
+
+            w += server->weight;
+            m++;
+        }
+        w += peers->total_weight;
 
         peers->single = (n == 1);
         peers->number = n;
         peers->weighted = (w != n);
         peers->total_weight = w;
-
-        for (i = 0; i < us->naddrs; i++) {
-            if (us->backup) {
-                continue;
-            }
-
-            peers->peer[m].sockaddr = us->addrs[i].sockaddr;
-            peers->peer[m].socklen = us->addrs[i].socklen;
-            peers->peer[m].name = us->addrs[i].name;
-            peers->peer[m].max_fails = us->max_fails;
-            peers->peer[m].fail_timeout = us->fail_timeout;
-            peers->peer[m].down = us->down;
-            peers->peer[m].weight = us->weight;
-            peers->peer[m].effective_weight = us->weight;
-            peers->peer[m].current_weight = 0;
-
-#if (NGX_HTTP_UPSTREAM_CHECK) 
-            ngx_uint_t index = ngx_http_upstream_check_add_dynamic_peer(cycle->pool, uscf, &us->addrs[i]);
-            peers->peer[m].check_index = index;
-#endif
-
-            m++;
-        }
     }
 
     if (!update_flag) {
@@ -1412,16 +1387,20 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             src.data = (u_char *)temp1->valuestring;
             src.len = ngx_strlen(temp1->valuestring);
 
-            dst.data = ngx_pcalloc(ctx->pool, 1024);
+            if (dst.data == NULL) {
+                dst.data = ngx_pcalloc(ctx->pool, 1024);
+            } else {
+                ngx_memzero(dst.data, 1024);
+            }
             dst.len = 0;
 
             ngx_decode_base64(&dst, &src);
         }
         temp1 = NULL;
 
-        upstream_conf->weight = 0;
-        upstream_conf->max_fails = 0;
-        upstream_conf->fail_timeout = 0;
+        upstream_conf->weight = 1;
+        upstream_conf->max_fails = 2;
+        upstream_conf->fail_timeout = 10;
 
         upstream_conf->down = 0;
         upstream_conf->backup = 0;
@@ -1431,55 +1410,80 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
         if (dst.data != NULL && dst.len != 0) {
 
             p = dst.data;
-
             cJSON *sub_root = cJSON_Parse((char *)p);
             if (sub_root == NULL) {
                 ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                    "dynamic_update_upstream_parse_json: root error");
-
+                        "dynamic_update_upstream_parse_json: root error");
                 continue;
             }
 
-            cJSON *temp1 = cJSON_GetObjectItem(sub_root, "weight");
-            if (temp1 != NULL && temp1->valuestring != NULL) {
+            cJSON *sub_attribute = sub_root;
+            cJSON *temp1 = cJSON_GetObjectItem(sub_attribute, "weight");
+            if (temp1 != NULL) {
 
-                upstream_conf->weight = ngx_atoi((u_char *)temp1->valuestring, 
+                if (temp1->valueint != 0) {
+                    upstream_conf->weight = temp1->valueint;
+                } else if (temp1->valuestring != NULL) {
+
+                    upstream_conf->weight = ngx_atoi((u_char *)temp1->valuestring, 
                                                 (size_t)ngx_strlen(temp1->valuestring));
+                }
             }
             temp1 = NULL;
 
-            temp1 = cJSON_GetObjectItem(sub_root, "max_fails");
-            if (temp1 != NULL && temp1->valuestring != NULL) {
+            temp1 = cJSON_GetObjectItem(sub_attribute, "max_fails");
+            if (temp1 != NULL) {
 
-                upstream_conf->max_fails = ngx_atoi((u_char *)temp1->valuestring, 
+                if (temp1->valueint != 0) {
+                    upstream_conf->max_fails = temp1->valueint;
+                } else if (temp1->valuestring != NULL) {
+
+                    upstream_conf->max_fails = ngx_atoi((u_char *)temp1->valuestring, 
                                                 (size_t)ngx_strlen(temp1->valuestring));
+                }
             }
             temp1 = NULL;
 
-            temp1 = cJSON_GetObjectItem(sub_root, "fail_timeout");
-            if (temp1 != NULL && temp1->valuestring != NULL) {
+            temp1 = cJSON_GetObjectItem(sub_attribute, "fail_timeout");
+            if (temp1 != NULL){
 
-                upstream_conf->fail_timeout = ngx_atoi((u_char *)temp1->valuestring, 
+                if (temp1->valueint != 0) {
+                    upstream_conf->fail_timeout = temp1->valueint;
+                } else if (temp1->valuestring != NULL) {
+
+                    upstream_conf->fail_timeout = ngx_atoi((u_char *)temp1->valuestring, 
                                                 (size_t)ngx_strlen(temp1->valuestring));
+                }
             }
             temp1 = NULL;
 
-            temp1 = cJSON_GetObjectItem(sub_root, "down");
-            if (temp1 != NULL && temp1->valuestring != NULL) {
+            temp1 = cJSON_GetObjectItem(sub_attribute, "down");
+            if (temp1 != NULL) {
+                    
+                if (temp1->valueint != 0) {
+                    upstream_conf->down = temp1->valueint;
+                } else if (temp1->valuestring != NULL) {
 
-                upstream_conf->down = ngx_atoi((u_char *)temp1->valuestring, 
+                    upstream_conf->down = ngx_atoi((u_char *)temp1->valuestring, 
                                                 (size_t)ngx_strlen(temp1->valuestring));
+                }
             }
             temp1 = NULL;
 
-            temp1 = cJSON_GetObjectItem(sub_root, "backup");
-            if (temp1 != NULL && temp1->valuestring != NULL) {
+            temp1 = cJSON_GetObjectItem(sub_attribute, "backup");
+            if (temp1 != NULL) {
+                    
+                if (temp1->valueint != 0) {
+                    upstream_conf->backup = temp1->valueint;
+                } else if (temp1->valuestring != NULL) {
 
-                upstream_conf->backup = ngx_atoi((u_char *)temp1->valuestring, 
+                    upstream_conf->backup = ngx_atoi((u_char *)temp1->valuestring, 
                                                 (size_t)ngx_strlen(temp1->valuestring));
+                }
             }
             temp1 = NULL;
 
+            dst.len = 0;
             cJSON_Delete(sub_root);
         }
     }
