@@ -51,7 +51,7 @@ typedef struct {
 typedef struct {
     u_char                           sockaddr[NGX_SOCKADDRLEN];
 
-    ngx_uint_t                       weight;
+    ngx_int_t                        weight;
     ngx_uint_t                       max_fails;
     time_t                           fail_timeout;
 
@@ -1403,8 +1403,9 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
         ngx_http_dynamic_update_upstream_server_t *conf_server)
 {
     u_char                                  *p;
+    ngx_int_t                                max_fails=0, backup=0, down=0;
     ngx_str_t                                src, dst;
-    ngx_http_update_conf_t                  *upstream_conf = NULL;
+    ngx_http_update_conf_t                  *upstream_conf=NULL;
     ngx_http_dynamic_update_upstream_ctx_t  *ctx;
 
     ctx = &conf_server->ctx;
@@ -1462,9 +1463,10 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
         }
         temp1 = NULL;
 
-        upstream_conf->weight = 0;
-        upstream_conf->max_fails = 0;
-        upstream_conf->fail_timeout = 0;
+        /* default value, server attribute */
+        upstream_conf->weight = 1;
+        upstream_conf->max_fails = 2;
+        upstream_conf->fail_timeout = 10;
 
         upstream_conf->down = 0;
         upstream_conf->backup = 0;
@@ -1477,7 +1479,8 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             cJSON *sub_root = cJSON_Parse((char *)p);
             if (sub_root == NULL) {
                 ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                        "dynamic_update_upstream_parse_json: root error");
+                        "dynamic_update_upstream_parse_json: parse server attribute json failed,"
+                        "setting server attribute to default value");
                 continue;
             }
 
@@ -1499,10 +1502,10 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             if (temp1 != NULL) {
 
                 if (temp1->valueint != 0) {
-                    upstream_conf->max_fails = temp1->valueint;
+                    max_fails = temp1->valueint;
                 } else if (temp1->valuestring != NULL) {
 
-                    upstream_conf->max_fails = ngx_atoi((u_char *)temp1->valuestring, 
+                    max_fails = ngx_atoi((u_char *)temp1->valuestring, 
                                                 (size_t)ngx_strlen(temp1->valuestring));
                 }
             }
@@ -1525,10 +1528,10 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             if (temp1 != NULL) {
                     
                 if (temp1->valueint != 0) {
-                    upstream_conf->down = temp1->valueint;
+                    down = temp1->valueint;
                 } else if (temp1->valuestring != NULL) {
 
-                    upstream_conf->down = ngx_atoi((u_char *)temp1->valuestring, 
+                    down = ngx_atoi((u_char *)temp1->valuestring, 
                                                 (size_t)ngx_strlen(temp1->valuestring));
                 }
             }
@@ -1538,10 +1541,10 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             if (temp1 != NULL) {
                     
                 if (temp1->valueint != 0) {
-                    upstream_conf->backup = temp1->valueint;
+                    backup = temp1->valueint;
                 } else if (temp1->valuestring != NULL) {
 
-                    upstream_conf->backup = ngx_atoi((u_char *)temp1->valuestring, 
+                    backup = ngx_atoi((u_char *)temp1->valuestring, 
                                                 (size_t)ngx_strlen(temp1->valuestring));
                 }
             }
@@ -1552,14 +1555,38 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
         }
 
         if (upstream_conf->weight < 1) {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                        "dynamic_update_upstream_parse_json: \"weight\" value is invalid and seting to 1");
             upstream_conf->weight = 1;
         }
-        if (upstream_conf->max_fails < 1) {
-            upstream_conf->max_fails = 2;
+
+        if (max_fails < 1) {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                        "dynamic_update_upstream_parse_json: \"max_fails\" value is invalid, seting to 2");
+        } else {
+            upstream_conf->max_fails = (ngx_uint_t)max_fails;
         }
+
         if (upstream_conf->fail_timeout < 1) {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                        "dynamic_update_upstream_parse_json: \"fail_timeout\" value is invalid, seting to 10");
             upstream_conf->fail_timeout = 10;
         }
+
+        if (down != 1 && down != 0) {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                        "dynamic_update_upstream_parse_json: \"down\" value is invalid, seting to 0");
+        } else {
+            upstream_conf->down = (ngx_uint_t)down;
+        }
+
+        if (backup != 1 && backup != 0) {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                        "dynamic_update_upstream_parse_json: \"backup\" value is invalid, seting to 0");
+        } else {
+            upstream_conf->backup = (ngx_uint_t)backup;
+        }
+
     }
     cJSON_Delete(root);
 
