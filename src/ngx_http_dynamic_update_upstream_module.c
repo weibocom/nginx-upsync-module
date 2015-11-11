@@ -3236,7 +3236,7 @@ ngx_http_dynamic_update_upstream_show(ngx_http_request_t *r)
         }
     }
 
-    b = ngx_create_temp_buf(r->pool, ngx_pagesize);
+    b = ngx_create_temp_buf(r->pool, NGX_PAGE_COUNT * ngx_pagesize);
     if (b == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
