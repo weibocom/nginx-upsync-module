@@ -1206,9 +1206,9 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
 #if (NGX_HTTP_UPSTREAM_CHECK) 
                     ngx_http_upstream_check_delete_dynamic_peer(
                             tmp_peers->name, &us->addrs[j]);
+                    tmp_peers->peer[i].check_index = NGX_MAX_VALUE;
 #endif
 
-                    tmp_peers->peer[i].check_index = NGX_MAX_VALUE;
                     break;
                 }
             }
@@ -2651,9 +2651,11 @@ ngx_http_dynamic_update_upstream_del_delay_delete(ngx_event_t *event)
     if (tmp_peers != NULL) {
         for (i = 0; i < tmp_peers->number; i++) {
 
+#if (NGX_HTTP_UPSTREAM_CHECK) 
             if (tmp_peers->peer[i].check_index != NGX_MAX_VALUE) {
                 continue;
             }
+#endif
 
             saddr = tmp_peers->peer[i].sockaddr;
             if (saddr != NULL) {
