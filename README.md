@@ -1,7 +1,7 @@
 Name
 ====
 
-nginx-upsync-module - Nginx C module, nginx + consul server discovery service, dynamicly update upstream backend servers, needn't reload nginx.
+nginx-upsync-module - Nginx C module, nginx + consul server discovery service, dynamicly update upstream backend servers, dynamicly adjust backend servers weight, needn't reload nginx.
 
 Table of Contents
 =================
@@ -71,7 +71,7 @@ http {
 Description
 ======
 
-This module provides a method to discover backend servers. Supporting dynamicly adding or deleting backend server through consul, module will timely pull new backend server list from consul to update nginx ip router. Nginx needn't reload. Having some advantages than others:
+This module provides a method to discover backend servers. Supporting dynamicly adding or deleting backend server through consul and dynamicly adjusting backend servers weight, module will timely pull new backend server list from consul to update nginx ip router. Nginx needn't reload. Having some advantages than others:
 
 * timely
 
@@ -83,7 +83,7 @@ This module provides a method to discover backend servers. Supporting dynamicly 
 
 * stability
 
-      Even if one pulling failed, it will pull next update_interval, so guaranteing backend server stably provides service.
+      Even if one pulling failed, it will pull next update_interval, so guaranteing backend server stably provides service. And support dumping the latest config to location, so even if consul hung up, and nginx can be reload anytime. 
 
 * health_check
 
@@ -167,13 +167,18 @@ http_interface example:
     default: weight=1 max_fails=2 fail_timeout=10 down=0 backup=0;
 
 ```
-    curl -X PUT -d '{"weight":"1", "max_fails":"2", "fail_timeout":"10s"}' http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port
+    curl -X PUT -d '{\"weight\":1, \"max_fails\":2, \"fail_timeout\":10}' http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
 ```
     value support json format.
 
 * delete
 ```
     curl -X DELETE http://$consul_ip:$port/v1/kv/upstreams/$upstream_name/$backend_ip:$backend_port
+```
+
+* adjust-weight
+```
+    curl -X PUT -d '{\"weight\":2}' http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
 ```
 
 * check
@@ -193,7 +198,11 @@ TODO
 Compatibility
 =============
 
-The module was developed base on nginx1.8.0, but it is not embeded to the request process, so it can be used in any version of nginx theoretically. To be veryfied.
+The module was developed base on nginx1.8.0.
+
+Compatible with Nginx-1.8.x.
+
+Compatible with Nginx-1.9.x.
 
 [Back to TOC](#table-of-contents)
 
