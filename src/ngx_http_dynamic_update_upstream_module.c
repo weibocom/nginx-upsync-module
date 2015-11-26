@@ -159,6 +159,51 @@ typedef struct {
 
 
 #if (NGX_HTTP_UPSTREAM_CHECK) 
+extern ngx_module_t ngx_http_upstream_check_module;
+
+typedef struct {
+    ngx_uint_t                               type;
+
+    ngx_str_t                                name;
+
+    ngx_str_t                                default_send;
+
+    /* HTTP */
+    ngx_uint_t                               default_status_alive;
+
+    ngx_event_handler_pt                     send_handler;
+    ngx_event_handler_pt                     recv_handler;
+
+    void *init;
+    void *parse;
+    void *reinit;
+
+    unsigned need_pool;
+    unsigned need_keepalive;
+} ngx_check_conf_t;
+
+typedef struct {
+    ngx_uint_t                               port;
+    ngx_uint_t                               fall_count;
+    ngx_uint_t                               rise_count;
+    ngx_msec_t                               check_interval;
+    ngx_msec_t                               check_timeout;
+    ngx_uint_t                               check_keepalive_requests;
+
+    ngx_check_conf_t                        *check_type_conf;
+    ngx_str_t                                send;
+
+    union {
+        ngx_uint_t                           return_code;
+        ngx_uint_t                           status_alive;
+    } code;
+
+    ngx_array_t                             *fastcgi_params;
+
+    ngx_uint_t                               default_down;
+    ngx_uint_t                               unique;
+} ngx_http_upstream_check_srv_conf_t;
+
 extern ngx_uint_t ngx_http_upstream_check_add_dynamic_peer(ngx_pool_t *pool,
         ngx_http_upstream_srv_conf_t *us, ngx_addr_t *peer_addr);
 extern void ngx_http_upstream_check_delete_dynamic_peer(ngx_str_t *name,
@@ -246,6 +291,8 @@ static void ngx_http_client_destroy(ngx_http_conf_client *client);
 static ngx_int_t ngx_http_client_send(ngx_http_conf_client *client, 
         ngx_http_dynamic_update_upstream_server_t *conf_server);
 static ngx_int_t ngx_http_client_recv(ngx_http_conf_client *client, char **data, int size);
+
+u_char *ngx_print_escape(u_char *dst, u_char *src, size_t len);
 
 static char *ngx_http_dynamic_update_upstream_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t ngx_http_dynamic_update_upstream_show(ngx_http_request_t *r);
@@ -2279,6 +2326,11 @@ ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_serv
     ngx_http_upstream_srv_conf_t                    *uscf=NULL;
     ngx_http_dynamic_update_upstream_srv_conf_t     *duscf;
 
+#if (NGX_HTTP_UPSTREAM_CHECK)
+    u_char                                          *escaped_send;
+    ngx_http_upstream_check_srv_conf_t              *ucscf;
+#endif
+
     uscf = conf_server->uscf;
 
     if (uscf->peer.data != NULL) {
@@ -2325,11 +2377,19 @@ ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_serv
         b->last = ngx_snprintf(b->last,b->end - b->last, " fail_timeout=%ds;\n", peers->peer[i].fail_timeout);
     }
 
-#if (NGX_HTTP_UPSTREAM_CHECK) 
-    b->last = ngx_snprintf(b->last,b->end - b->last, "\n\tcheck interval=1000 rise=3 fall=2 timeout=3000 type=http"
-                                                     " default_down=false;\n");
-    b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_http_send \"GET / HTTP/1.0\\r\\n\\r\\n\";\n");
-    b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_http_expect_alive http_2xx;\n");
+#if (NGX_HTTP_UPSTREAM_CHECK)
+    ucscf = ngx_http_conf_upstream_srv_conf(uscf, ngx_http_upstream_check_module);
+
+    escaped_send = ngx_pcalloc(conf_server->ctx.pool, ucscf->send.len * 2);
+    ngx_print_escape(escaped_send, ucscf->send.data, ucscf->send.len);
+
+    b->last = ngx_snprintf(b->last,b->end - b->last, "\n\tcheck interval=%d rise=%d fall=%d timeout=%d type=%V"
+                                                     " default_down=%s;\n", ucscf->check_interval, ucscf->rise_count,
+                                                     ucscf->fall_count, ucscf->check_timeout, &ucscf->check_type_conf->name,
+                                                     ucscf->default_down ? "true":"false");
+    b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_keepalive_requests %d;\n", ucscf->check_keepalive_requests);
+    b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_http_send \"%s\";\n", escaped_send);
+    b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_http_expect_alive http_2xx http_3xx;\n");
 #endif
 
     b->last = ngx_snprintf(b->last,b->end - b->last, "}\n");
@@ -2682,6 +2742,40 @@ ngx_http_dynamic_update_upstream_del_delay_delete(ngx_event_t *event)
     delay_event = NULL;
 
     return;
+}
+
+
+u_char *
+ngx_print_escape(u_char *dst, u_char *src, size_t len)
+{
+    u_char    ch;
+
+    if (dst == NULL || src == NULL || len < 1) {
+        return NULL;
+    }
+
+    while (len) {
+        ch = *src++;
+
+        switch (ch) {
+            case '\r':
+                *dst++ = '\\';
+                *dst++ = 'r';
+                break;
+            case '\n':
+                *dst++ = '\\';
+                *dst++ = 'n';
+                break;
+            default:
+                *dst++ = ch;
+        }
+        
+        len--;
+    }
+
+    *dst = '\0';
+
+    return dst;
 }
 
 
