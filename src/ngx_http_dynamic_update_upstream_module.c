@@ -1535,7 +1535,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             cJSON *temp1 = cJSON_GetObjectItem(sub_attribute, "weight");
             if (temp1 != NULL) {
 
-                if (temp1->valueint != 0) {
+                if (temp1->valueint >= 0) {
                     upstream_conf->weight = temp1->valueint;
                 } else if (temp1->valuestring != NULL) {
 
@@ -1548,7 +1548,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             temp1 = cJSON_GetObjectItem(sub_attribute, "max_fails");
             if (temp1 != NULL) {
 
-                if (temp1->valueint != 0) {
+                if (temp1->valueint >= 0) {
                     max_fails = temp1->valueint;
                 } else if (temp1->valuestring != NULL) {
 
@@ -1561,7 +1561,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             temp1 = cJSON_GetObjectItem(sub_attribute, "fail_timeout");
             if (temp1 != NULL){
 
-                if (temp1->valueint != 0) {
+                if (temp1->valueint >= 0) {
                     upstream_conf->fail_timeout = temp1->valueint;
                 } else if (temp1->valuestring != NULL) {
 
@@ -1601,20 +1601,20 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             cJSON_Delete(sub_root);
         }
 
-        if (upstream_conf->weight < 1) {
+        if (upstream_conf->weight < 0) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                         "dynamic_update_upstream_parse_json: \"weight\" value is invalid and seting to 1");
             upstream_conf->weight = 1;
         }
 
-        if (max_fails < 1) {
+        if (max_fails < 0) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                         "dynamic_update_upstream_parse_json: \"max_fails\" value is invalid, seting to 2");
         } else {
             upstream_conf->max_fails = (ngx_uint_t)max_fails;
         }
 
-        if (upstream_conf->fail_timeout < 1) {
+        if (upstream_conf->fail_timeout < 0) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                         "dynamic_update_upstream_parse_json: \"fail_timeout\" value is invalid, seting to 10");
             upstream_conf->fail_timeout = 10;
@@ -2320,15 +2320,15 @@ update_recv_fail:
 static ngx_int_t
 ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_server_t *conf_server)
 {
-    ngx_buf_t                                       *b;
+    ngx_buf_t                                       *b=NULL;
     ngx_uint_t                                       i, page_numbers;
     ngx_http_upstream_rr_peers_t                    *peers=NULL;
     ngx_http_upstream_srv_conf_t                    *uscf=NULL;
-    ngx_http_dynamic_update_upstream_srv_conf_t     *duscf;
+    ngx_http_dynamic_update_upstream_srv_conf_t     *duscf=NULL;
 
 #if (NGX_HTTP_UPSTREAM_CHECK)
-    u_char                                          *escaped_send;
-    ngx_http_upstream_check_srv_conf_t              *ucscf;
+    u_char                                          *escaped_send=NULL;
+    ngx_http_upstream_check_srv_conf_t              *ucscf=NULL;
 #endif
 
     uscf = conf_server->uscf;
@@ -2379,17 +2379,18 @@ ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_serv
 
 #if (NGX_HTTP_UPSTREAM_CHECK)
     ucscf = ngx_http_conf_upstream_srv_conf(uscf, ngx_http_upstream_check_module);
+    if (ucscf != NULL && ucscf->check_type_conf != NULL) {
+        escaped_send = ngx_pcalloc(conf_server->ctx.pool, ucscf->send.len * 2);
+        ngx_print_escape(escaped_send, ucscf->send.data, ucscf->send.len);
 
-    escaped_send = ngx_pcalloc(conf_server->ctx.pool, ucscf->send.len * 2);
-    ngx_print_escape(escaped_send, ucscf->send.data, ucscf->send.len);
-
-    b->last = ngx_snprintf(b->last,b->end - b->last, "\n\tcheck interval=%d rise=%d fall=%d timeout=%d type=%V"
+        b->last = ngx_snprintf(b->last,b->end - b->last, "\n\tcheck interval=%d rise=%d fall=%d timeout=%d type=%V"
                                                      " default_down=%s;\n", ucscf->check_interval, ucscf->rise_count,
                                                      ucscf->fall_count, ucscf->check_timeout, &ucscf->check_type_conf->name,
                                                      ucscf->default_down ? "true":"false");
-    b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_keepalive_requests %d;\n", ucscf->check_keepalive_requests);
-    b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_http_send \"%s\";\n", escaped_send);
-    b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_http_expect_alive http_2xx http_3xx;\n");
+        b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_keepalive_requests %d;\n", ucscf->check_keepalive_requests);
+        b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_http_send \"%s\";\n", escaped_send);
+        b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_http_expect_alive http_2xx http_3xx;\n");
+    }
 #endif
 
     b->last = ngx_snprintf(b->last,b->end - b->last, "}\n");
