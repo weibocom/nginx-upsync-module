@@ -1450,7 +1450,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
         ngx_http_dynamic_update_upstream_server_t *conf_server)
 {
     u_char                                  *p;
-    ngx_int_t                                max_fails=0, backup=0, down=0;
+    ngx_int_t                                max_fails=2, backup=0, down=0;
     ngx_str_t                                src, dst;
     ngx_http_update_conf_t                  *upstream_conf=NULL;
     ngx_http_dynamic_update_upstream_ctx_t  *ctx;
