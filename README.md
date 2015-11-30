@@ -180,7 +180,7 @@ or
 
 * adjust-weight
 ```
-    curl -X PUT -d '{\"weight\":2}' http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
+    curl -X PUT -d "{\"weight\":2}" http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
 ```
 
 * check

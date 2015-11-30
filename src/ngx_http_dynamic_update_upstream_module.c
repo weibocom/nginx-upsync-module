@@ -1535,39 +1535,43 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             cJSON *temp1 = cJSON_GetObjectItem(sub_attribute, "weight");
             if (temp1 != NULL) {
 
-                if (temp1->valueint >= 0) {
-                    upstream_conf->weight = temp1->valueint;
-                } else if (temp1->valuestring != NULL) {
-
+                if (temp1->valuestring != NULL) {
                     upstream_conf->weight = ngx_atoi((u_char *)temp1->valuestring, 
                                                 (size_t)ngx_strlen(temp1->valuestring));
+
+                } else if (temp1->valueint >= 0) {
+                    upstream_conf->weight = temp1->valueint;
                 }
+
             }
             temp1 = NULL;
 
             temp1 = cJSON_GetObjectItem(sub_attribute, "max_fails");
             if (temp1 != NULL) {
 
-                if (temp1->valueint >= 0) {
-                    max_fails = temp1->valueint;
-                } else if (temp1->valuestring != NULL) {
-
+                if (temp1->valuestring != NULL) {
                     max_fails = ngx_atoi((u_char *)temp1->valuestring, 
                                                 (size_t)ngx_strlen(temp1->valuestring));
+
+                } else if (temp1->valueint >= 0) {
+                    max_fails = temp1->valueint;
                 }
+
             }
             temp1 = NULL;
 
             temp1 = cJSON_GetObjectItem(sub_attribute, "fail_timeout");
             if (temp1 != NULL){
 
-                if (temp1->valueint >= 0) {
-                    upstream_conf->fail_timeout = temp1->valueint;
-                } else if (temp1->valuestring != NULL) {
+                if (temp1->valuestring != NULL) {
 
                     upstream_conf->fail_timeout = ngx_atoi((u_char *)temp1->valuestring, 
                                                 (size_t)ngx_strlen(temp1->valuestring));
+
+                } else if (temp1->valueint >= 0) {
+                    upstream_conf->fail_timeout = temp1->valueint;
                 }
+
             }
             temp1 = NULL;
 
@@ -1601,7 +1605,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             cJSON_Delete(sub_root);
         }
 
-        if (upstream_conf->weight < 0) {
+        if (upstream_conf->weight <= 0) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                         "dynamic_update_upstream_parse_json: \"weight\" value is invalid and seting to 1");
             upstream_conf->weight = 1;
