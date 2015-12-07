@@ -1449,7 +1449,7 @@ static ngx_int_t
 ngx_http_dynamic_update_upstream_parse_json(u_char *buf, 
         ngx_http_dynamic_update_upstream_server_t *conf_server)
 {
-    u_char                                  *p;
+    u_char                                  *p, *port_p;
     ngx_int_t                                max_fails=2, backup=0, down=0;
     ngx_str_t                                src, dst;
     ngx_http_update_conf_t                  *upstream_conf=NULL;
@@ -1486,6 +1486,10 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
         cJSON *temp1 = cJSON_GetObjectItem(server_next, "Key");
         if (temp1 != NULL && temp1->valuestring != NULL) {
             p = (u_char *)ngx_strrchr(temp1->valuestring, '/');
+            port_p = (u_char *)ngx_strchr(p, ':');
+            if (port_p == NULL) {
+                continue;
+            }
 
             upstream_conf = ngx_array_push(&ctx->upstream_conf);
             ngx_memzero(upstream_conf, sizeof(*upstream_conf));
@@ -1953,7 +1957,7 @@ ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
                 ngx_destroy_pool(pool);
                 ctx->pool = NULL;
 
-                break;
+                continue;
             }
 
             return NGX_ERROR;
