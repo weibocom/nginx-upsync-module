@@ -1,7 +1,7 @@
 Name
 ====
 
-nginx-upsync-module - Nginx C module, nginx + consul server discovery service, dynamicly update upstream backend servers, dynamicly adjust backend servers weight, needn't reload nginx.
+nginx-upsync-module - Nginx C module, nginx + consul server discovery service, dynamically update upstream backend servers, dynamically adjust backend servers' weight, needn't reload nginx.
 
 Table of Contents
 =================
@@ -71,7 +71,7 @@ http {
 Description
 ======
 
-This module provides a method to discover backend servers. Supporting dynamicly adding or deleting backend server through consul and dynamicly adjusting backend servers weight, module will timely pull new backend server list from consul to update nginx ip router. Nginx needn't reload. Having some advantages than others:
+This module provides a method to discover backend servers. Supporting dynamically adding or deleting backend server through consul and dynamically adjusting backend servers weight, module will timely pull new backend server list from consul to update nginx ip router. Nginx needn't reload. Having some advantages than others:
 
 * timely
 
@@ -89,7 +89,7 @@ This module provides a method to discover backend servers. Supporting dynamicly 
 
       nginx-upsync-module support adding or deleting servers health check, needing nginx_upstream_check_module. Recommending nginx-upsync-module + nginx_upstream_check_module.
 
-Diretives
+Directives
 ======
 
 consul
@@ -211,7 +211,7 @@ Compatible with Nginx-1.9.x.
 Installation
 ============
 
-This module can be used independently, can be download[Github](https://github.com/weibocom/nginx-upsync-module.git).
+This module can be used independently, and can be downloaded from [Github](https://github.com/weibocom/nginx-upsync-module.git).
 
 Grab the nginx source code from [nginx.org](http://nginx.org/), for example, the version 1.8.0 (see nginx compatibility), and then build the source with this module:
 
