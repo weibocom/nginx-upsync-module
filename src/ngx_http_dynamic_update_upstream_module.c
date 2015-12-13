@@ -93,7 +93,7 @@ typedef struct {
 
     ngx_open_file_t     *conf_file;
 
-    ngx_http_upstream_server_t    us;
+    ngx_http_upstream_server_t    us;         //consul server
 } ngx_http_dynamic_update_upstream_srv_conf_t;
 
 
@@ -108,8 +108,6 @@ typedef struct {
     ngx_int_t                                index;
 
     ngx_str_t                                host;
-
-    ngx_flag_t                               update_label;
 
     ngx_shmtx_t                              dynamic_accept_mutex;
 
@@ -228,6 +226,8 @@ static ngx_int_t ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycl
 static ngx_int_t ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle);
 static ngx_int_t ngx_http_dynamic_update_upstream_init_shm_mutex(ngx_cycle_t *cycle);
 static ngx_int_t ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle);
+static ngx_int_t ngx_http_dynamic_update_upstream_init_peers(ngx_cycle_t *cycle,
+        ngx_http_dynamic_update_upstream_server_t *conf_server);
 
 static void ngx_http_dynamic_update_upstream_begin_handler(ngx_event_t *event);
 static void ngx_http_dynamic_update_upstream_connect_handler(ngx_event_t *event);
@@ -238,23 +238,19 @@ static void ngx_http_dynamic_update_upstream_clean_event(
         ngx_http_dynamic_update_upstream_server_t *peer);
 static ngx_int_t ngx_http_dynamic_update_upstream_dump_conf(
         ngx_http_dynamic_update_upstream_server_t *conf_server);
-static ngx_int_t ngx_http_dynamic_update_upstream_init_peer(ngx_event_t *event);
+static ngx_int_t ngx_http_dynamic_update_upstream_init_consul(ngx_event_t *event);
 
 static ngx_int_t ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle, 
         ngx_http_dynamic_update_upstream_server_t *conf_server);
-static ngx_int_t ngx_http_dynamic_update_upstream_copy_peer(ngx_cycle_t *cycle,
-        ngx_http_upstream_srv_conf_t *uscf, ngx_array_t *servers,
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
 static ngx_int_t ngx_http_dynamic_update_upstream_add_peer(ngx_cycle_t *cycle, 
-        ngx_http_upstream_srv_conf_t *uscf, ngx_array_t *servers);
+        ngx_array_t *servers, ngx_http_dynamic_update_upstream_server_t *conf_server);
 static void ngx_http_dynamic_update_upstream_add_check(ngx_cycle_t *cycle, 
         ngx_http_dynamic_update_upstream_server_t *conf_server);
 
 static ngx_int_t ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle, 
         ngx_http_dynamic_update_upstream_server_t *conf_server);
 static ngx_int_t ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
-        ngx_http_upstream_srv_conf_t *uscf, ngx_http_upstream_server_t *ctx,
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
+        ngx_http_upstream_server_t *us, ngx_http_dynamic_update_upstream_server_t *conf_server);
 static void ngx_http_dynamic_update_upstream_del_check(ngx_cycle_t *cycle, 
         ngx_http_dynamic_update_upstream_server_t *conf_server);
 
@@ -274,6 +270,7 @@ int ngx_http_body(http_parser *p, const char *buf, size_t len);
 
 static ngx_int_t ngx_http_dynamic_update_upstream_parse_json(u_char *buf, 
         ngx_http_dynamic_update_upstream_server_t *conf_server);
+static ngx_int_t ngx_http_dynamic_update_upstream_check_key(u_char *key);
 static void ngx_http_dynamic_update_upstream_free(ngx_http_upstream_rr_peers_t *peers);
 
 static void ngx_http_dynamic_update_upstream_add_delay_delete(ngx_event_t *event);
@@ -292,7 +289,7 @@ static ngx_int_t ngx_http_client_send(ngx_http_conf_client *client,
         ngx_http_dynamic_update_upstream_server_t *conf_server);
 static ngx_int_t ngx_http_client_recv(ngx_http_conf_client *client, char **data, int size);
 
-u_char *ngx_print_escape(u_char *dst, u_char *src, size_t len);
+static u_char *ngx_print_escape(u_char *dst, u_char *src, size_t len);
 
 static char *ngx_http_dynamic_update_upstream_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t ngx_http_dynamic_update_upstream_show(ngx_http_request_t *r);
@@ -314,7 +311,6 @@ ngx_atomic_t  *dynamic_shared_created = &dynamic_shared_created0;
 
 static http_parser *parser = NULL;
 static ngx_http_state state;
-static ngx_int_t update_flag = 0;
 
 static ngx_http_dynamic_update_upstream_main_conf_t  *dynamic_upstream_ctx = NULL;
 
@@ -652,11 +648,6 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
         }
     }
 
-    if (!conf_server->update_label && update_flag) {
-        conf_server->update_label = 1;
-        update_flag = 0;
-    }
-
     return;
 }
 
@@ -672,12 +663,9 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
     ngx_array_t                              servers;  /* ngx_http_upstream_server_t */
     ngx_http_update_conf_t                  *conf;
     ngx_http_upstream_server_t              *server;
-    ngx_http_upstream_srv_conf_t            *uscf;
     ngx_http_dynamic_update_upstream_ctx_t  *ctx;
 
     struct sockaddr_in  *sin;
-
-    uscf = conf_server->uscf;
 
     ctx = &conf_server->ctx;
 
@@ -754,15 +742,8 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
     }
 
     if (servers.nelts > 0) {
-        if (ngx_http_dynamic_update_upstream_copy_peer(cycle, uscf, 
-                    &servers, conf_server) 
-                != NGX_OK) 
-        {
-            goto invalid;
-        }
-
-        if (ngx_http_dynamic_update_upstream_add_peer(cycle, uscf, 
-                    &servers) != NGX_OK) {
+        if (ngx_http_dynamic_update_upstream_add_peer(cycle, &servers, 
+                    conf_server) != NGX_OK) {
             goto invalid;
         }
     }
@@ -790,196 +771,38 @@ invalid:
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_copy_peer(ngx_cycle_t *cycle,
-        ngx_http_upstream_srv_conf_t *uscf, ngx_array_t *servers,
-        ngx_http_dynamic_update_upstream_server_t *conf_server)
-{
-    ngx_uint_t                                   i, n, m, len, num;
-    ngx_flag_t                                   update_label;
-    ngx_http_upstream_rr_peers_t                *peers=NULL, *backup=NULL;
-    ngx_http_upstream_rr_peers_t                *tmp_peers=NULL, *tmp_backup=NULL;
-
-    update_label = conf_server->update_label;
-
-    u_char *namep = NULL;
-    struct sockaddr *saddr = NULL;
-    len = sizeof(struct sockaddr);
-
-    num = servers->nelts;
-
-    if (uscf->peer.data != NULL) {
-        tmp_peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
-        tmp_backup = tmp_peers->next;
-    }
-
-    if (tmp_peers) {
-        n = tmp_peers->number;
-        m = n + num;
-
-        peers = ngx_calloc(sizeof(ngx_http_upstream_rr_peers_t)
-                + sizeof(ngx_http_upstream_rr_peer_t) * (m - 1), cycle->log);
-
-        if (peers == NULL) {
-            goto invalid;
-        }
-
-        peers->single = tmp_peers->single;
-        peers->number = tmp_peers->number;
-        peers->weighted = tmp_peers->weighted;
-        peers->total_weight = tmp_peers->total_weight;
-        peers->name = tmp_peers->name;
-
-        n = 0;
-
-        for (i = 0; i < tmp_peers->number; i++) {
-
-            if (!update_label) {
-
-                if ((saddr = ngx_calloc(len, cycle->log)) == NULL) {
-                    goto invalid;
-                }
-                ngx_memcpy(saddr, tmp_peers->peer[n].sockaddr, len);
-                peers->peer[n].sockaddr = saddr;
-
-            } else {
-                peers->peer[n].sockaddr = tmp_peers->peer[n].sockaddr;
-            }
-
-            peers->peer[n].socklen = tmp_peers->peer[n].socklen;
-            peers->peer[n].name.len = tmp_peers->peer[n].name.len;
-
-            if (!update_label) {
-
-                if ((namep = ngx_calloc(tmp_peers->peer[n].name.len,
-                                        cycle->log)) == NULL) {
-                    goto invalid;
-                }
-                ngx_memcpy(namep, tmp_peers->peer[n].name.data,
-                           tmp_peers->peer[n].name.len);
-                peers->peer[n].name.data = namep;
-            } else {
-
-                peers->peer[n].name.data = tmp_peers->peer[n].name.data;
-            }
-
-            peers->peer[n].max_fails = tmp_peers->peer[n].max_fails;
-            peers->peer[n].fail_timeout = tmp_peers->peer[n].fail_timeout;
-            peers->peer[n].down = tmp_peers->peer[n].down;
-            peers->peer[n].weight = tmp_peers->peer[n].weight;
-            peers->peer[n].effective_weight = tmp_peers->peer[n].effective_weight;
-            peers->peer[n].current_weight = tmp_peers->peer[n].current_weight;
-
-#if (NGX_HTTP_UPSTREAM_CHECK) 
-            peers->peer[n].check_index = tmp_peers->peer[n].check_index;
-#endif
-
-            n++;
-        }
-
-        uscf->peer.data = peers;
-
-        /* backup servers */
-
-        if (tmp_backup) {
-            n = tmp_backup->number;
-
-        } else {
-            n = 0;
-        }
-
-        if (n == 0) {
-            if (update_label) {
-                ngx_http_dynamic_update_upstream_event_init(tmp_peers, conf_server, NGX_ADD);
-            }
-
-            return NGX_OK;
-        }
-
-        backup = ngx_calloc(sizeof(ngx_http_upstream_rr_peers_t)
-                + sizeof(ngx_http_upstream_rr_peer_t) * (n - 1), cycle->log);
-        if (backup == NULL) {
-            goto invalid;
-        }
-
-        peers->single = 0;
-        backup->single = tmp_backup->single;
-        backup->number = tmp_backup->number;
-        backup->weighted = tmp_backup->weighted;
-        backup->total_weight = tmp_backup->total_weight;
-        backup->name = tmp_backup->name;
-
-        n = 0;
-
-        for (i = 0; i < uscf->servers->nelts; i++) {
-
-            backup->peer[n].sockaddr = tmp_backup->peer[n].sockaddr;
-            backup->peer[n].socklen = tmp_backup->peer[n].socklen;
-            backup->peer[n].name.len = tmp_backup->peer[n].name.len;
-            backup->peer[n].name.data = tmp_backup->peer[n].name.data;
-            backup->peer[n].weight = tmp_backup->peer[n].weight;
-            backup->peer[n].effective_weight = tmp_backup->peer[n].weight;
-            backup->peer[n].current_weight = tmp_backup->peer[n].current_weight;
-            backup->peer[n].max_fails = tmp_backup->peer[n].max_fails;
-            backup->peer[n].fail_timeout = tmp_backup->peer[n].fail_timeout;
-            backup->peer[n].down = tmp_backup->peer[n].down;
-
-#if (NGX_HTTP_UPSTREAM_CHECK) 
-            backup->peer[n].check_index = tmp_backup->peer[n].check_index;
-#endif
-
-            n++;
-        }
-
-        peers->next = backup;
-
-        if (update_label) {
-            ngx_http_dynamic_update_upstream_event_init(tmp_peers, conf_server, NGX_ADD);
-        }
-
-        return NGX_OK;
-    }
-
-    return NGX_OK;
-
-invalid:
-    ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-            "dynamic_update_upstream_copy_peer: copy failed \"%V\"", &uscf->host);
-
-    if (peers != NULL) {
-        ngx_http_dynamic_update_upstream_free(peers);
-    }
-
-    if (backup != NULL) {
-        ngx_http_dynamic_update_upstream_free(backup);
-    }
-
-    uscf->peer.data = tmp_peers;
-
-    return NGX_ERROR;
-}
-
-
-static ngx_int_t
 ngx_http_dynamic_update_upstream_add_peer(ngx_cycle_t *cycle,
-        ngx_http_upstream_srv_conf_t *uscf, ngx_array_t *servers)
+        ngx_array_t *servers, ngx_http_dynamic_update_upstream_server_t *conf_server)
 {
     ngx_uint_t                     i=0, n=0, w=0, m=0;
     ngx_http_upstream_server_t    *server=NULL;
-    ngx_http_upstream_rr_peers_t  *peers=NULL;
+    ngx_http_upstream_rr_peers_t  *peers=NULL, *tmp_peers=NULL;
+    ngx_http_upstream_srv_conf_t  *uscf;
 
-    peers = uscf->peer.data;
+    uscf = conf_server->uscf;
 
-    if (servers->nelts == 0) {
+    if (servers->nelts < 1) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
                 "dynamic_update_upstream_add_peer: no servers to add \"%V\"", &uscf->host);
         return NGX_ERROR;
     }
 
-    if (servers->nelts) {
+    if (uscf->peer.data != NULL) {
+        tmp_peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
+    }
 
-        n = servers->nelts + peers->number;
-        m = peers->number;
+    if (tmp_peers && servers->nelts >= 1) {
+        n = tmp_peers->number + servers->nelts;
 
+        peers = ngx_calloc(sizeof(ngx_http_upstream_rr_peers_t)
+                + sizeof(ngx_http_upstream_rr_peer_t) * (n - 1), cycle->log);
+        if (peers == NULL) {
+            goto invalid;
+        }
+        ngx_memcpy(peers, tmp_peers, sizeof(ngx_http_upstream_rr_peers_t) +
+                   + sizeof(ngx_http_upstream_rr_peer_t) * (tmp_peers->number));
+
+        m = tmp_peers->number;
         for (i = 0; i < servers->nelts; i++) {
 
             server = (ngx_http_upstream_server_t *)servers->elts + i;
@@ -1005,19 +828,33 @@ ngx_http_dynamic_update_upstream_add_peer(ngx_cycle_t *cycle,
             w += server->weight;
             m++;
         }
-        w += peers->total_weight;
+        w += tmp_peers->total_weight;
 
         peers->single = (n == 1);
         peers->number = n;
         peers->weighted = (w != n);
         peers->total_weight = w;
-    }
 
-    if (!update_flag) {
-        update_flag = 1;
+        uscf->peer.data = peers;
+        peers->next = tmp_peers->next;
+
+        ngx_http_dynamic_update_upstream_event_init(tmp_peers, conf_server, NGX_ADD);
     }
 
     return NGX_OK;
+
+invalid:
+    ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
+            "dynamic_update_upstream_add_peer: add failed \"%V\"", &uscf->host);
+
+    if (peers != NULL) {
+        ngx_http_dynamic_update_upstream_free(peers);
+    }
+    peers = NULL;
+
+    uscf->peer.data = tmp_peers;
+
+    return NGX_ERROR;
 }
 
 
@@ -1087,13 +924,10 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
     ngx_pool_t                              *pool;
     ngx_addr_t                              *addrs;
     ngx_http_update_conf_t                  *conf;
-    ngx_http_upstream_srv_conf_t            *uscf;
     ngx_http_upstream_server_t               us;
     ngx_http_dynamic_update_upstream_ctx_t  *ctx;
 
     struct sockaddr_in  *sin;
-
-    uscf = conf_server->uscf;
 
     ctx = &conf_server->ctx;
 
@@ -1120,7 +954,7 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
         port = ngx_strlchr(p, last, ':');
         if(port == NULL) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "upstream_del_server: has no port in %s", p);
+                    "dynamic_update_upstream_del_server: has no port in %s", p);
             j--;
             continue;
         }
@@ -1163,15 +997,13 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
 
     us.addrs = addrs;
     us.naddrs = j;
-    us.weight = 0;
+    us.weight = 1;
     us.max_fails = 0;
     us.fail_timeout = 0;
 
     if (us.naddrs > 0) {
-        if (ngx_http_dynamic_update_upstream_del_peer(cycle, uscf, 
-                    &us, conf_server) 
-                != NGX_OK) 
-        {
+        if (ngx_http_dynamic_update_upstream_del_peer(cycle, &us, 
+                    conf_server) != NGX_OK) {
             goto invalid;
         }
     }
@@ -1189,26 +1021,20 @@ invalid:
 
 static ngx_int_t
 ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
-        ngx_http_upstream_srv_conf_t *uscf, ngx_http_upstream_server_t *us,
-        ngx_http_dynamic_update_upstream_server_t *conf_server)
+        ngx_http_upstream_server_t *us, ngx_http_dynamic_update_upstream_server_t *conf_server)
 {
-    ngx_uint_t                                   i, j, n, w, len;
-    ngx_flag_t                                   update_label;
-    ngx_http_upstream_rr_peers_t                *peers=NULL;
-    ngx_http_upstream_rr_peers_t                *tmp_peers=NULL, *tmp_backup=NULL;
+    ngx_uint_t                          i, j, n=0, w=0, len=0;
+    ngx_http_upstream_rr_peers_t       *peers=NULL, *tmp_peers=NULL;
+    ngx_http_upstream_srv_conf_t       *uscf;
 
-    update_label = conf_server->update_label;
-
-    u_char *namep = NULL;
-    struct sockaddr *saddr = NULL;
     len = sizeof(struct sockaddr);
 
+    uscf = conf_server->uscf;
     if (uscf->peer.data != NULL) {
         tmp_peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
-        tmp_backup = tmp_peers->next;
     }
 
-    if (tmp_peers->number == us->naddrs) {
+    if (tmp_peers->number <= us->naddrs) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0, "[WARN]:"
                 "dynamic_update_upstream_del_peer: upstream \"%V\" cannt delete all", &uscf->host);
 
@@ -1216,81 +1042,38 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
     }
 
     if (tmp_peers) {
-        n = 0;
-        w = 0;
-
-        if (tmp_peers->number < us->naddrs) {
-            ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                    "dynamic_update_upstream_del_peer: no servers to del in \"%V\"", &uscf->host);
-            goto invalid;
-        }
-
         n = tmp_peers->number - us->naddrs;
-        w = tmp_peers->total_weight - us->naddrs * us->weight;
+        w = tmp_peers->total_weight;
 
         peers = ngx_calloc(sizeof(ngx_http_upstream_rr_peers_t)
                 + sizeof(ngx_http_upstream_rr_peer_t) * (n - 1), cycle->log);
-
         if (peers == NULL) {
             goto invalid;
         }
 
-        peers->single = (n == 1);
-        peers->number = n;
-        peers->weighted = (w != n);
-        peers->total_weight = w;
-        peers->name = &uscf->host;
-
         n = 0;
-
         for (i = 0; i < tmp_peers->number; i++) {
             for (j = 0; j < us->naddrs; j++) {
                 if (ngx_memn2cmp((u_char *) tmp_peers->peer[i].sockaddr, 
-                            (u_char *) us->addrs[j].sockaddr, len, len)
-                        == 0)
-                {
+                            (u_char *) us->addrs[j].sockaddr, len, len) == 0) {
 
 #if (NGX_HTTP_UPSTREAM_CHECK) 
                     ngx_http_upstream_check_delete_dynamic_peer(
-                            tmp_peers->name, &us->addrs[j]);
+                                                      tmp_peers->name, &us->addrs[j]);
                     tmp_peers->peer[i].check_index = NGX_MAX_VALUE;
 #endif
 
+                    w -= tmp_peers->peer[i].weight;
                     break;
                 }
             }
 
             if (j == us->naddrs) {
 
-                if (!update_label) {
-
-                    if ((saddr = ngx_calloc(len, cycle->log)) == NULL) {
-                        goto invalid;
-                    }
-                    ngx_memcpy(saddr, tmp_peers->peer[i].sockaddr, len);
-                    peers->peer[n].sockaddr = saddr;
-
-                } else {
-                    peers->peer[n].sockaddr = tmp_peers->peer[i].sockaddr;
-                }
-
+                peers->peer[n].sockaddr = tmp_peers->peer[i].sockaddr;
                 peers->peer[n].socklen = tmp_peers->peer[i].socklen;
                 peers->peer[n].name.len = tmp_peers->peer[i].name.len;
-
-                if (!update_label) {
-
-                    if ((namep = ngx_calloc(tmp_peers->peer[i].name.len,
-                                            cycle->log)) == NULL) {
-                        goto invalid;
-                    }
-                    ngx_memcpy(namep, tmp_peers->peer[i].name.data,
-                                tmp_peers->peer[i].name.len);
-                    peers->peer[n].name.data = namep;
-                } else {
-
-                    peers->peer[n].name.data = tmp_peers->peer[i].name.data;
-                }
-
+                peers->peer[n].name.data = tmp_peers->peer[i].name.data;
                 peers->peer[n].max_fails = tmp_peers->peer[i].max_fails;
                 peers->peer[n].fail_timeout = tmp_peers->peer[i].fail_timeout;
                 peers->peer[n].down = tmp_peers->peer[i].down;
@@ -1301,26 +1084,20 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
 #if (NGX_HTTP_UPSTREAM_CHECK) 
                 peers->peer[n].check_index = tmp_peers->peer[i].check_index;
 #endif
-
                 n++;
             }
         }
 
+        peers->single = (n == 1);
+        peers->number = n;
+        peers->weighted = (w != n);
+        peers->total_weight = w;
+        peers->name = tmp_peers->name; //upstream host
+
         uscf->peer.data = peers;
+        peers->next = tmp_peers->next;
 
-        /* backup servers */
-
-        peers->next = tmp_backup;
-
-        if (update_label) {
-            ngx_http_dynamic_update_upstream_event_init(tmp_peers, conf_server, NGX_DEL);
-        }
-
-        if (!update_flag) {
-            update_flag = 1;
-        }
-
-        return NGX_OK;
+        ngx_http_dynamic_update_upstream_event_init(tmp_peers, conf_server, NGX_DEL);
     }
 
     return NGX_OK;
@@ -1449,7 +1226,7 @@ static ngx_int_t
 ngx_http_dynamic_update_upstream_parse_json(u_char *buf, 
         ngx_http_dynamic_update_upstream_server_t *conf_server)
 {
-    u_char                                  *p, *port_p;
+    u_char                                  *p;
     ngx_int_t                                max_fails=2, backup=0, down=0;
     ngx_str_t                                src, dst;
     ngx_http_update_conf_t                  *upstream_conf=NULL;
@@ -1486,8 +1263,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
         cJSON *temp1 = cJSON_GetObjectItem(server_next, "Key");
         if (temp1 != NULL && temp1->valuestring != NULL) {
             p = (u_char *)ngx_strrchr(temp1->valuestring, '/');
-            port_p = (u_char *)ngx_strchr(p, ':');
-            if (port_p == NULL) {
+            if (ngx_http_dynamic_update_upstream_check_key(p) != NGX_OK) {
                 continue;
             }
 
@@ -1649,6 +1425,38 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
 }
 
 
+static ngx_int_t
+ngx_http_dynamic_update_upstream_check_key(u_char *key)
+{
+    u_char          *last, *ip_p, *port_p;
+    ngx_int_t        port;
+
+    port_p = (u_char *)ngx_strchr(key, ':');
+    if (port_p == NULL) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, 
+                    "dynamic_update_upstream_check_key: has no port in %s", key);
+        return NGX_ERROR;
+    }
+
+    ip_p = key + 1;
+    if (ngx_inet_addr(ip_p, port_p - ip_p) == INADDR_NONE) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, 
+                    "dynamic_update_upstream_check_key: invalid ip in %s", key);
+        return NGX_ERROR;
+    }
+
+    last = ip_p + ngx_strlen(ip_p);
+    port = ngx_atoi(port_p + 1, last - port_p - 1);
+    if (port < 1 || port > 65535) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, 
+                    "dynamic_update_upstream_check_key: invalid port in %s", key);
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+
 static void
 ngx_http_dynamic_update_upstream_free(ngx_http_upstream_rr_peers_t *peers)
 {
@@ -1805,7 +1613,6 @@ ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_u
     }
 
     conf_server->index = 0;
-    conf_server->update_label = 0;
 
     conf_server->conf = duscf;
     conf_server->uscf = uscf;
@@ -1933,6 +1740,8 @@ ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
         ctx = &conf_server[i].ctx;
         ngx_memzero(ctx, sizeof(*ctx));
 
+        ngx_http_dynamic_update_upstream_init_peers(cycle, &conf_server[i]);
+
         pool = ngx_create_pool(NGX_PAGE_COUNT * ngx_pagesize, ngx_cycle->log);
         if (pool == NULL) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
@@ -2001,6 +1810,97 @@ ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
 
 
 static ngx_int_t
+ngx_http_dynamic_update_upstream_init_peers(ngx_cycle_t *cycle,
+        ngx_http_dynamic_update_upstream_server_t *conf_server)
+{
+    ngx_uint_t                          i, n, len;
+    ngx_http_upstream_rr_peers_t       *peers=NULL, *tmp_peers=NULL;
+    ngx_http_upstream_srv_conf_t       *uscf;
+
+    uscf = conf_server->uscf;
+
+    u_char *namep = NULL;
+    struct sockaddr *saddr = NULL;
+    len = sizeof(struct sockaddr);
+
+    ngx_queue_init(&conf_server->add_ev);
+    ngx_queue_init(&conf_server->delete_ev);
+
+    if (uscf->peer.data != NULL) {
+        tmp_peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
+    }
+
+    if (tmp_peers) {
+        n = tmp_peers->number;
+
+        peers = ngx_calloc(sizeof(ngx_http_upstream_rr_peers_t)
+                + sizeof(ngx_http_upstream_rr_peer_t) * (n - 1), cycle->log);
+
+        if (peers == NULL) {
+            goto invalid;
+        }
+
+        peers->single = tmp_peers->single;
+        peers->number = tmp_peers->number;
+        peers->weighted = tmp_peers->weighted;
+        peers->total_weight = tmp_peers->total_weight;
+        peers->name = tmp_peers->name;
+
+        n = 0;
+
+        for (i = 0; i < tmp_peers->number; i++) {
+
+            if ((saddr = ngx_calloc(len, cycle->log)) == NULL) {
+                goto invalid;
+            }
+            ngx_memcpy(saddr, tmp_peers->peer[i].sockaddr, len);
+            peers->peer[i].sockaddr = saddr;
+
+            peers->peer[i].socklen = tmp_peers->peer[i].socklen;
+            peers->peer[i].name.len = tmp_peers->peer[i].name.len;
+
+            if ((namep = ngx_calloc(tmp_peers->peer[i].name.len,
+                                        cycle->log)) == NULL) {
+                goto invalid;
+            }
+            ngx_memcpy(namep, tmp_peers->peer[i].name.data,
+                        tmp_peers->peer[i].name.len);
+            peers->peer[i].name.data = namep;
+
+            peers->peer[i].max_fails = tmp_peers->peer[i].max_fails;
+            peers->peer[i].fail_timeout = tmp_peers->peer[i].fail_timeout;
+            peers->peer[i].down = tmp_peers->peer[i].down;
+            peers->peer[i].weight = tmp_peers->peer[i].weight;
+            peers->peer[i].effective_weight = tmp_peers->peer[i].effective_weight;
+            peers->peer[i].current_weight = tmp_peers->peer[i].current_weight;
+
+#if (NGX_HTTP_UPSTREAM_CHECK) 
+            peers->peer[i].check_index = tmp_peers->peer[i].check_index;
+#endif
+        }
+
+        uscf->peer.data = peers;
+        peers->next = tmp_peers->next;
+
+        ngx_pfree(cycle->pool, tmp_peers);
+    }
+
+    return NGX_OK;
+
+invalid:
+    ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
+            "dynamic_update_upstream_init_peers: copy failed \"%V\"", &uscf->host);
+
+    if (peers != NULL) {
+        ngx_http_dynamic_update_upstream_free(peers);
+    }
+    uscf->peer.data = tmp_peers;
+
+    return NGX_ERROR;
+}
+
+
+static ngx_int_t
 ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle)
 {
     ngx_msec_t                                   t, tmp;
@@ -2019,9 +1919,6 @@ ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle)
 
     srandom(ngx_pid);
     for (i = 0; i < dynamic_upstream_ctx->upstream_num; i++) {
-
-        ngx_queue_init(&peer[i].add_ev);
-        ngx_queue_init(&peer[i].delete_ev);
 
         peer[i].update_ev.handler = ngx_http_dynamic_update_upstream_begin_handler;
         peer[i].update_ev.log = cycle->log;
@@ -2101,7 +1998,7 @@ ngx_http_dynamic_update_upstream_connect_handler(ngx_event_t *event)
         return;
     }
 
-    if (ngx_http_dynamic_update_upstream_init_peer(event) != NGX_OK) {
+    if (ngx_http_dynamic_update_upstream_init_consul(event) != NGX_OK) {
         return;
     }
 
@@ -2445,7 +2342,7 @@ ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_serv
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_init_peer(ngx_event_t *event)
+ngx_http_dynamic_update_upstream_init_consul(ngx_event_t *event)
 {
     ngx_pool_t                                   *pool;
     ngx_http_upstream_server_t                   *us;
@@ -2469,7 +2366,7 @@ ngx_http_dynamic_update_upstream_init_peer(ngx_event_t *event)
         pool = ngx_create_pool(NGX_PAGE_COUNT * ngx_pagesize, ngx_cycle->log);
         if (pool == NULL) {
             ngx_log_error(NGX_LOG_ERR, event->log, 0, 
-                        "dynamic_update_upstream_init_peer: creat pool, no enough memory");
+                        "dynamic_update_upstream_init_consul: creat pool, no enough memory");
             return NGX_ERROR;
         }
         ctx->pool = pool;
@@ -2591,8 +2488,7 @@ ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_pe
         ngx_queue_insert_head(&conf_server->add_ev, &delay_event->queue);
     } else {
 
-        delay_event->delay_delete_ev.handler =
-            ngx_http_dynamic_update_upstream_del_delay_delete;
+        delay_event->delay_delete_ev.handler = ngx_http_dynamic_update_upstream_del_delay_delete;
         delay_event->delay_delete_ev.log = ngx_cycle->log;
         delay_event->delay_delete_ev.data = delay_event;
         delay_event->delay_delete_ev.timer_set = 0;
