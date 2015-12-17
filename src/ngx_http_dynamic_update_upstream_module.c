@@ -2511,9 +2511,13 @@ ngx_http_dynamic_update_upstream_add_delay_delete(ngx_event_t *event)
     ngx_delay_event_t             *delay_event;
     ngx_http_request_t            *r=NULL;
     ngx_http_log_ctx_t            *ctx=NULL;
-    ngx_http_upstream_rr_peers_t  *tmp_peers=NULL, *tmp_backup=NULL;
+    ngx_http_upstream_rr_peers_t  *tmp_peers=NULL;
 
     delay_event = event->data;
+    if (delay_event == NULL) {
+        return;
+    }
+    tmp_peers = delay_event->data;
 
     c = ngx_cycle->connections;
     for (i = 0; i < ngx_cycle->connection_n; i++) {
@@ -2544,19 +2548,10 @@ ngx_http_dynamic_update_upstream_add_delay_delete(ngx_event_t *event)
         }
     }
 
-    tmp_peers = delay_event->data;
-    tmp_backup = tmp_peers->next;
-
     if (tmp_peers != NULL) {
 
         ngx_free(tmp_peers);
         tmp_peers = NULL;
-    }
-
-    if (tmp_backup && tmp_backup->number > 0) {
- 
-        ngx_free(tmp_backup);
-        tmp_backup = NULL;
     }
 
     ngx_queue_remove(&delay_event->queue);
@@ -2582,6 +2577,9 @@ ngx_http_dynamic_update_upstream_del_delay_delete(ngx_event_t *event)
     struct sockaddr *saddr = NULL;
 
     delay_event = event->data;
+    if (delay_event == NULL) {
+        return;
+    }
     tmp_peers = delay_event->data;
 
     c = ngx_cycle->connections;
