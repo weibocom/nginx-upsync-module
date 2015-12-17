@@ -268,7 +268,7 @@ see also
 ========
 * the nginx_upstream_check_module: https://github.com/alibaba/tengine/blob/master/src/http/ngx_http_upstream_check_module.c
 * the nginx_upstream_check_module patch: https://github.com/yaoweibin/nginx_upstream_check_module
-* the all project as a service base on docker:
+* or if you want to use check_module, you can based on https://github.com/xiaokai-wang/nginx_upstream_check_module
 
 [back to toc](#table-of-contents)
 
