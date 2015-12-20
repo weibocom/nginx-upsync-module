@@ -23,16 +23,13 @@
 
 #define NGX_MAX_VALUE 65535
 
-#define NGX_DELAY_DELETE 150 * 1000
+#define NGX_DELAY_DELETE 75 * 1000
 
 #define NGX_ADD 0
 #define NGX_DEL 1
 
-#define NGX_BLOCK 1024
-#define NGX_PAGESIZE 4 * 1024
-#define NGX_PAGE_COUNT 1024
-
-#define NGX_BACKEND_NUMBER   35  /* everypage(4K) can store backend number is 35 approximately*/
+#define NGX_PAGE_SIZE 4 * 1024
+#define NGX_PAGE_NUMBER 1024
 
 #define NGX_HTTP_RETRY_TIMES 3
 #define NGX_HTTP_SOCKET_TIMEOUT 1
@@ -83,8 +80,6 @@ typedef struct {
 
     ngx_msec_t           update_timeout;
     ngx_msec_t           update_interval;
-
-    ngx_msec_t           delay_delete;
 
     ngx_uint_t           strong_dependency;
 
@@ -152,7 +147,7 @@ typedef struct {
 
     enum { NONE=0, FIELD, VALUE } last_header;
 
-    u_char     http_body[NGX_PAGESIZE * NGX_BLOCK];
+    u_char     http_body[NGX_PAGE_SIZE * NGX_PAGE_NUMBER];
 } ngx_http_state;
 
 
@@ -279,7 +274,7 @@ static void ngx_http_dynamic_update_upstream_del_delay_delete(ngx_event_t *event
 static ngx_int_t ngx_http_dynamic_update_upstream_need_exit();
 static void ngx_http_dynamic_update_upstream_clear_all_events();
 
-static ngx_int_t ngx_http_dynamic_update_upstream_get_all(ngx_cycle_t *cycle, 
+static ngx_int_t ngx_http_dynamic_update_upstream_get_upstream(ngx_cycle_t *cycle, 
         ngx_http_dynamic_update_upstream_server_t *conf_server, char **conf_value);
 static ngx_http_conf_client *ngx_http_create_client(ngx_cycle_t *cycle, 
         ngx_http_dynamic_update_upstream_server_t *conf_server);
@@ -377,7 +372,6 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
 {
     u_char                                       *p = NULL;
     time_t                                        update_timeout = 0, update_interval = 0;
-    time_t                                        delay_delete = 0;
     ngx_str_t                                    *value, s;
     ngx_url_t                                     u;
     ngx_uint_t                                    i, strong_dependency = 0;
@@ -420,20 +414,6 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
             continue;
         }
 
-        if (ngx_strncmp(value[i].data, "delay_delete=", 13) == 0) {
-
-            s.len = value[i].len - 13;
-            s.data = &value[i].data[13];
-
-            delay_delete = ngx_parse_time(&s, 0);
-
-            if (delay_delete == (time_t) NGX_ERROR) {
-                goto invalid;
-            }
-
-            continue;
-        }
-
         if (ngx_strncmp(value[i].data, "strong_dependency=", 18) == 0) {
             s.len = value[i].len - 18;
             s.data = value[i].data + 18;
@@ -462,10 +442,6 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
 
     if (update_timeout != 0) {
         duscf->update_timeout = update_timeout;
-    }
-
-    if (delay_delete != 0) {
-        duscf->delay_delete = delay_delete;
     }
 
     if (strong_dependency != 0) {
@@ -930,19 +906,13 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
     struct sockaddr_in  *sin;
 
     ctx = &conf_server->ctx;
+    pool = ctx->pool;
 
     ngx_memzero(&us, sizeof(ngx_http_upstream_server_t));
 
-    pool = ngx_create_pool(ngx_pagesize, cycle->log);
-    if (pool == NULL) {
-        ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                "dynamic_update_upstream_del_server: no enough memory");
-        return NGX_ERROR;
-    }
-
     addrs = ngx_pcalloc(pool, ctx->del_upstream.nelts * sizeof(ngx_addr_t));
     if (addrs == NULL) {
-        goto invalid;
+        return NGX_ERROR;
     }
 
     for (i = 0, j = 0; i < ctx->del_upstream.nelts; i++, j++) {
@@ -969,7 +939,7 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
 
         sin = ngx_pcalloc(pool, sizeof(struct sockaddr_in));
         if (sin == NULL) {
-            goto invalid;
+            return NGX_ERROR;
         }
 
         sin->sin_family = AF_INET;
@@ -988,7 +958,7 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
 
         pp = ngx_pcalloc(pool, last - p);
         if (pp == NULL) {
-            goto invalid;
+            return NGX_ERROR;
         }
 
         addrs[j].name.len = ngx_sprintf(pp, "%s", p) - pp;
@@ -1004,18 +974,11 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
     if (us.naddrs > 0) {
         if (ngx_http_dynamic_update_upstream_del_peer(cycle, &us, 
                     conf_server) != NGX_OK) {
-            goto invalid;
+            return NGX_ERROR;
         }
     }
 
-    ngx_destroy_pool(pool);
-
     return NGX_OK;
-
-invalid:
-    ngx_destroy_pool(pool);
-
-    return NGX_ERROR;
 }
 
 
@@ -1542,8 +1505,6 @@ ngx_http_dynamic_update_upstream_create_srv_conf(ngx_conf_t *cf)
     duscf->update_timeout = NGX_CONF_UNSET_MSEC;
     duscf->update_interval = NGX_CONF_UNSET_MSEC;
 
-    duscf->delay_delete = NGX_CONF_UNSET_MSEC;
-
     duscf->strong_dependency = NGX_CONF_UNSET_UINT;
 
     duscf->conf_file = NGX_CONF_UNSET_PTR;
@@ -1587,10 +1548,6 @@ ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_u
 
     if (duscf->update_interval == NGX_CONF_UNSET_MSEC) {
         duscf->update_interval = 1000 * 5;
-    }
-
-    if (duscf->delay_delete == NGX_CONF_UNSET_MSEC) {
-        duscf->delay_delete = 1000 * 75;
     }
 
     if (duscf->strong_dependency == NGX_CONF_UNSET_UINT) {
@@ -1742,7 +1699,7 @@ ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
 
         ngx_http_dynamic_update_upstream_init_peers(cycle, &conf_server[i]);
 
-        pool = ngx_create_pool(NGX_PAGE_COUNT * ngx_pagesize, ngx_cycle->log);
+        pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, ngx_cycle->log);
         if (pool == NULL) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
                     "dynamic_update_upstream_init_process: recv no enough memory");
@@ -1751,7 +1708,7 @@ ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
         ctx->pool = pool;
 
         for (j = 0; j < NGX_HTTP_RETRY_TIMES; j++) {
-            status = ngx_http_dynamic_update_upstream_get_all(cycle, 
+            status = ngx_http_dynamic_update_upstream_get_upstream(cycle, 
                     &conf_server[i], &conf_value);
             if (status == NGX_OK) {
                 break;
@@ -1774,7 +1731,7 @@ ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
 
         ctx->recv.pos = (u_char *)conf_value;
         ctx->recv.last = (u_char *)(conf_value + ngx_strlen(conf_value));
-        ctx->recv.end = (u_char *)(conf_value + ngx_pagesize);
+        ctx->recv.end = ctx->recv.last;
 
         if (ngx_http_parser_init() == NGX_ERROR) {
             ngx_destroy_pool(pool);
@@ -2055,8 +2012,8 @@ ngx_http_dynamic_update_upstream_send_handler(ngx_event_t *event)
 
     ctx = &peer->ctx;
 
-    u_char request[NGX_BLOCK];
-    ngx_memzero(request, NGX_BLOCK);
+    u_char request[ngx_pagesize];
+    ngx_memzero(request, ngx_pagesize);
     ngx_sprintf(request, "GET %V?recurse&index=%d HTTP/1.0\r\nHost: %V\r\nAccept: */*\r\n\r\n", 
             &conf->update_send, peer->index, &conf->us.name);
 
@@ -2125,7 +2082,7 @@ ngx_http_dynamic_update_upstream_recv_handler(ngx_event_t *event)
     ctx = &peer->ctx;
 
     if (ctx->pool == NULL) {
-        pool = ngx_create_pool(NGX_PAGE_COUNT * ngx_pagesize, ngx_cycle->log);
+        pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, ngx_cycle->log);
 
         if (pool == NULL) {
             ngx_log_error(NGX_LOG_ERR, event->log, 0, 
@@ -2226,7 +2183,7 @@ static ngx_int_t
 ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_server_t *conf_server)
 {
     ngx_buf_t                                       *b=NULL;
-    ngx_uint_t                                       i, page_numbers;
+    ngx_uint_t                                       i;
     ngx_http_upstream_rr_peers_t                    *peers=NULL;
     ngx_http_upstream_srv_conf_t                    *uscf=NULL;
     ngx_http_dynamic_update_upstream_srv_conf_t     *duscf=NULL;
@@ -2254,9 +2211,8 @@ ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_serv
 
         return NGX_ERROR;
     }
-    page_numbers = peers->number / NGX_BACKEND_NUMBER + 1;
 
-    b = ngx_create_temp_buf(conf_server->ctx.pool, page_numbers * ngx_pagesize);
+    b = ngx_create_temp_buf(conf_server->ctx.pool, NGX_PAGE_SIZE * NGX_PAGE_NUMBER);
     if (b == NULL) {
         ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
                 "dynamic_update_upstream_dump_conf: dump failed %V", &uscf->host);
@@ -2363,7 +2319,7 @@ ngx_http_dynamic_update_upstream_init_consul(ngx_event_t *event)
     ctx = &peer->ctx;
     if (ctx->pool == NULL) {
 
-        pool = ngx_create_pool(NGX_PAGE_COUNT * ngx_pagesize, ngx_cycle->log);
+        pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, ngx_cycle->log);
         if (pool == NULL) {
             ngx_log_error(NGX_LOG_ERR, event->log, 0, 
                         "dynamic_update_upstream_init_consul: creat pool, no enough memory");
@@ -2464,9 +2420,6 @@ ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_pe
 {
     ngx_time_t                                  *tp;
     ngx_delay_event_t                           *delay_event;
-    ngx_http_dynamic_update_upstream_srv_conf_t *conf;
-
-    conf = conf_server->conf;
 
     delay_event = ngx_calloc(sizeof(*delay_event), ngx_cycle->log);
     if (delay_event == NULL) {
@@ -2497,7 +2450,7 @@ ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_pe
     }
 
     delay_event->data = tmp_peers;
-    ngx_add_timer(&delay_event->delay_delete_ev, conf->delay_delete);
+    ngx_add_timer(&delay_event->delay_delete_ev, NGX_DELAY_DELETE);
 
     return;
 }
@@ -2721,7 +2674,7 @@ static ngx_int_t
 ngx_http_parser_init()
 {
     ngx_memzero(state.status, 3);
-    ngx_memzero(state.http_body, NGX_PAGESIZE * NGX_BLOCK);
+    ngx_memzero(state.http_body, NGX_PAGE_SIZE * NGX_PAGE_NUMBER);
     ngx_memzero(state.headers, NGX_MAX_HEADERS * 2 * NGX_MAX_ELEMENT_SIZE);
 
     state.num_headers = 0;
@@ -2988,21 +2941,21 @@ ngx_http_dynamic_update_upstream_clear_all_events()
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_get_all(ngx_cycle_t *cycle, 
+ngx_http_dynamic_update_upstream_get_upstream(ngx_cycle_t *cycle, 
         ngx_http_dynamic_update_upstream_server_t *conf_server, char **conf_value)
 {
     ngx_http_conf_client *client = ngx_http_create_client(cycle, conf_server);
 
     if (client == NULL) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "dynamic_update_upstream_get_all: http client create error");
+                "dynamic_update_upstream_get_upstream: http client create error");
         return NGX_ERROR;
     }
 
     ngx_int_t status = ngx_http_client_conn(client);
     if (status != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "dynamic_update_upstream_get_all: http client conn error");
+                "dynamic_update_upstream_get_upstream: http client conn error");
 
         ngx_http_client_destroy(client);
         return NGX_ERROR;
@@ -3014,7 +2967,7 @@ ngx_http_dynamic_update_upstream_get_all(ngx_cycle_t *cycle,
 
     if (ngx_http_client_recv(client, &response, 0) <= 0) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "dynamic_update_upstream_get_all: http client recv fail");
+                "dynamic_update_upstream_get_upstream: http client recv fail");
 
         if (response != NULL) {
             ngx_free(response);
@@ -3115,8 +3068,8 @@ ngx_http_client_send(ngx_http_conf_client *client,
 
     conf = conf_server->conf;
 
-    u_char request[NGX_BLOCK];
-    ngx_memzero(request, NGX_BLOCK);
+    u_char request[ngx_pagesize];
+    ngx_memzero(request, ngx_pagesize);
     ngx_sprintf(request, "GET %V?recurse HTTP/1.0\r\nHost: %V\r\nAccept: */*\r\n\r\n", 
             &conf->update_send, &conf->us.name);
 
@@ -3235,7 +3188,7 @@ ngx_http_dynamic_update_upstream_show(ngx_http_request_t *r)
         }
     }
 
-    b = ngx_create_temp_buf(r->pool, NGX_PAGE_COUNT * ngx_pagesize);
+    b = ngx_create_temp_buf(r->pool, NGX_PAGE_SIZE * NGX_PAGE_NUMBER);
     if (b == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
