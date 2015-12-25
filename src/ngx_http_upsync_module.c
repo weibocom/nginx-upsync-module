@@ -37,11 +37,12 @@
 
 /* client for conf service */
 typedef struct {
-    int                 sd;
-    int                 port;
-    char                ip[16];
-    struct sockaddr_in  addr;
-    int                 connected;
+    ngx_int_t                 sd;
+    ngx_int_t                 port;
+    ngx_int_t                 connected;
+
+    char                      ip[16];
+    struct sockaddr_in        addr;
 } ngx_http_conf_client;
 
 
@@ -71,25 +72,25 @@ typedef struct {
     ngx_array_t                      add_upstream;
 
     ngx_array_t                      upstream_conf;
-} ngx_http_dynamic_update_upstream_ctx_t;
+} ngx_http_upsync_ctx_t;
 
 
 typedef struct {
-    ngx_str_t            consul_host;
-    ngx_int_t            consul_port;
+    ngx_str_t                        consul_host;
+    ngx_int_t                        consul_port;
 
-    ngx_msec_t           update_timeout;
-    ngx_msec_t           update_interval;
+    ngx_msec_t                       update_timeout;
+    ngx_msec_t                       update_interval;
 
-    ngx_uint_t           strong_dependency;
+    ngx_uint_t                       strong_dependency;
 
-    ngx_str_t            update_send;
-    ngx_str_t            upstream_conf_path;
+    ngx_str_t                        update_send;
+    ngx_str_t                        upstream_conf_path;
 
-    ngx_open_file_t     *conf_file;
+    ngx_open_file_t                 *conf_file;
 
-    ngx_http_upstream_server_t    us;         //consul server
-} ngx_http_dynamic_update_upstream_srv_conf_t;
+    ngx_http_upstream_server_t       consul;         /* consul server */
+} ngx_http_upsync_srv_conf_t;
 
 
 /* based on upstream conf, every unit update from consul */
@@ -104,19 +105,19 @@ typedef struct {
 
     ngx_str_t                                host;
 
-    ngx_shmtx_t                              dynamic_accept_mutex;
+    ngx_shmtx_t                              upsync_accept_mutex;
 
     ngx_peer_connection_t                    pc;
 
     ngx_event_handler_pt                     send_handler;
     ngx_event_handler_pt                     recv_handler;
 
-    ngx_http_upstream_srv_conf_t                 *uscf;
+    ngx_http_upstream_srv_conf_t            *uscf;
 
-    ngx_http_dynamic_update_upstream_ctx_t        ctx;
+    ngx_http_upsync_ctx_t                    ctx;
 
-    ngx_http_dynamic_update_upstream_srv_conf_t  *conf;
-} ngx_http_dynamic_update_upstream_server_t;
+    ngx_http_upsync_srv_conf_t              *upscf;
+} ngx_http_upsync_server_t;
 
 
 typedef struct {
@@ -132,12 +133,13 @@ typedef struct {
 
 
 typedef struct {
-    ngx_uint_t                                  upstream_num;
+    ngx_uint_t                               upstream_num;
 
-    ngx_http_dynamic_update_upstream_server_t  *conf_server;
-} ngx_http_dynamic_update_upstream_main_conf_t;
+    ngx_http_upsync_server_t                *upsync_server;
+} ngx_http_upsync_main_conf_t;
 
 
+/* http parser state */
 typedef struct {
     u_char     status[3];
 
@@ -198,96 +200,98 @@ typedef struct {
 } ngx_http_upstream_check_srv_conf_t;
 
 extern ngx_uint_t ngx_http_upstream_check_add_dynamic_peer(ngx_pool_t *pool,
-        ngx_http_upstream_srv_conf_t *us, ngx_addr_t *peer_addr);
+    ngx_http_upstream_srv_conf_t *us, ngx_addr_t *peer_addr);
 extern void ngx_http_upstream_check_delete_dynamic_peer(ngx_str_t *name,
-        ngx_addr_t *peer_addr);
+    ngx_addr_t *peer_addr);
 #endif
 
-static char *ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, 
-        ngx_command_t *cmd, void *conf);
-static char *ngx_http_dynamic_update_upstream_set_conf_dump(ngx_conf_t *cf, 
-        ngx_command_t *cmd, void *conf);
+static char *ngx_http_upsync_consul_server(ngx_conf_t *cf, 
+    ngx_command_t *cmd, void *conf);
+static char *ngx_http_upsync_set_conf_dump(ngx_conf_t *cf, 
+    ngx_command_t *cmd, void *conf);
 
-static void *ngx_http_dynamic_update_upstream_create_main_conf(ngx_conf_t *cf);
-static void *ngx_http_dynamic_update_upstream_create_srv_conf(ngx_conf_t *cf);
-static char *ngx_http_dynamic_update_upstream_init_main_conf(ngx_conf_t *cf, void *conf);
-static char *ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, 
-        ngx_uint_t num);
+static void *ngx_http_upsync_create_main_conf(ngx_conf_t *cf);
+static void *ngx_http_upsync_create_srv_conf(ngx_conf_t *cf);
+static char *ngx_http_upsync_init_main_conf(ngx_conf_t *cf, void *conf);
+static char *ngx_http_upsync_init_srv_conf(ngx_conf_t *cf, void *conf, 
+    ngx_uint_t num);
 
-static void ngx_http_dynamic_update_upstream_process(
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
+static void ngx_http_upsync_process(ngx_http_upsync_server_t *upsync_server);
 
-static ngx_int_t ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle);
-static ngx_int_t ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle);
-static ngx_int_t ngx_http_dynamic_update_upstream_init_shm_mutex(ngx_cycle_t *cycle);
-static ngx_int_t ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle);
-static ngx_int_t ngx_http_dynamic_update_upstream_init_peers(ngx_cycle_t *cycle,
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
+static ngx_int_t ngx_http_upsync_init_process(ngx_cycle_t *cycle);
+static ngx_int_t ngx_http_upsync_init_module(ngx_cycle_t *cycle);
+static ngx_int_t ngx_http_upsync_init_shm_mutex(ngx_cycle_t *cycle);
+static ngx_int_t ngx_http_upsync_add_timers(ngx_cycle_t *cycle);
+static ngx_int_t ngx_http_upsync_init_peers(ngx_cycle_t *cycle,
+    ngx_http_upsync_server_t *upsync_server);
 
-static void ngx_http_dynamic_update_upstream_begin_handler(ngx_event_t *event);
-static void ngx_http_dynamic_update_upstream_connect_handler(ngx_event_t *event);
-static void ngx_http_dynamic_update_upstream_recv_handler(ngx_event_t *event);
-static void ngx_http_dynamic_update_upstream_send_handler(ngx_event_t *event);
-static void ngx_http_dynamic_update_upstream_timeout_handler(ngx_event_t *event);
-static void ngx_http_dynamic_update_upstream_clean_event(
-        ngx_http_dynamic_update_upstream_server_t *peer);
-static ngx_int_t ngx_http_dynamic_update_upstream_dump_conf(
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
-static ngx_int_t ngx_http_dynamic_update_upstream_init_consul(ngx_event_t *event);
+static void ngx_http_upsync_begin_handler(ngx_event_t *event);
+static void ngx_http_upsync_connect_handler(ngx_event_t *event);
+static void ngx_http_upsync_recv_handler(ngx_event_t *event);
+static void ngx_http_upsync_send_handler(ngx_event_t *event);
+static void ngx_http_upsync_timeout_handler(ngx_event_t *event);
+static void ngx_http_upsync_clean_event(ngx_http_upsync_server_t *upsync_server);
+static ngx_int_t ngx_http_upsync_dump_conf(
+    ngx_http_upsync_server_t *upsync_server);
+static ngx_int_t ngx_http_upsync_init_consul(ngx_event_t *event);
 
-static ngx_int_t ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
-static ngx_int_t ngx_http_dynamic_update_upstream_add_peer(ngx_cycle_t *cycle, 
-        ngx_array_t *servers, ngx_http_dynamic_update_upstream_server_t *conf_server);
-static void ngx_http_dynamic_update_upstream_add_check(ngx_cycle_t *cycle, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
+static ngx_int_t ngx_http_upsync_add_server(ngx_cycle_t *cycle, 
+    ngx_http_upsync_server_t *upsync_server);
+static ngx_int_t ngx_http_upsync_add_peer(ngx_cycle_t *cycle, 
+    ngx_array_t *servers, ngx_http_upsync_server_t *upsync_server);
+static void ngx_http_upsync_add_check(ngx_cycle_t *cycle, 
+    ngx_http_upsync_server_t *upsync_server);
 
-static ngx_int_t ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
-static ngx_int_t ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
-        ngx_http_upstream_server_t *us, ngx_http_dynamic_update_upstream_server_t *conf_server);
-static void ngx_http_dynamic_update_upstream_del_check(ngx_cycle_t *cycle, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
+static ngx_int_t ngx_http_upsync_del_server(ngx_cycle_t *cycle, 
+    ngx_http_upsync_server_t *upsync_server);
+static ngx_int_t ngx_http_upsync_del_peer(ngx_cycle_t *cycle,
+    ngx_http_upstream_server_t *us, ngx_http_upsync_server_t *upsync_server);
+static void ngx_http_upsync_del_check(ngx_cycle_t *cycle, 
+    ngx_http_upsync_server_t *upsync_server);
 
-static ngx_int_t ngx_http_dynamic_update_upstream_server_weight(ngx_cycle_t *cycle,
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
+static ngx_int_t ngx_http_upsync_server_weight(ngx_cycle_t *cycle,
+    ngx_http_upsync_server_t *upsync_server);
 
-static void ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_peers, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server, ngx_flag_t flag);
+static void ngx_http_upsync_event_init(ngx_http_upstream_rr_peers_t *tmp_peers, 
+    ngx_http_upsync_server_t *upsync_server, ngx_flag_t flag);
 
 static ngx_int_t ngx_http_parser_init();
-static void ngx_http_parser_execute(ngx_http_dynamic_update_upstream_ctx_t *ctx);
+static void ngx_http_parser_execute(ngx_http_upsync_ctx_t *ctx);
 
-int ngx_http_status(http_parser *p, const char *buf, size_t len);
-int ngx_http_header_field_cb(http_parser *p, const char *buf, size_t len);
-int ngx_http_header_value_cb(http_parser *p, const char *buf, size_t len);
-int ngx_http_body(http_parser *p, const char *buf, size_t len);
+static int ngx_http_status(http_parser *p, const char *buf, size_t len);
+static int ngx_http_header_field_cb(http_parser *p, const char *buf, 
+    size_t len);
+static int ngx_http_header_value_cb(http_parser *p, const char *buf, 
+    size_t len);
+static int ngx_http_body(http_parser *p, const char *buf, size_t len);
 
-static ngx_int_t ngx_http_dynamic_update_upstream_parse_json(u_char *buf, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
-static ngx_int_t ngx_http_dynamic_update_upstream_check_key(u_char *key);
-static void ngx_http_dynamic_update_upstream_free(ngx_http_upstream_rr_peers_t *peers);
+static ngx_int_t ngx_http_upsync_parse_json(u_char *buf, 
+    ngx_http_upsync_server_t *upsync_server);
+static ngx_int_t ngx_http_upsync_check_key(u_char *key);
+static void ngx_http_upsync_free(ngx_http_upstream_rr_peers_t *peers);
 
-static void ngx_http_dynamic_update_upstream_add_delay_delete(ngx_event_t *event);
-static void ngx_http_dynamic_update_upstream_del_delay_delete(ngx_event_t *event);
+static void ngx_http_upsync_add_delay_delete(ngx_event_t *event);
+static void ngx_http_upsync_del_delay_delete(ngx_event_t *event);
 
-static ngx_int_t ngx_http_dynamic_update_upstream_need_exit();
-static void ngx_http_dynamic_update_upstream_clear_all_events();
+static ngx_int_t ngx_http_upsync_need_exit();
+static void ngx_http_upsync_clear_all_events();
 
-static ngx_int_t ngx_http_dynamic_update_upstream_get_upstream(ngx_cycle_t *cycle, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server, char **conf_value);
+static ngx_int_t ngx_http_upsync_get_upstream(ngx_cycle_t *cycle, 
+    ngx_http_upsync_server_t *upsync_server, char **conf_value);
 static ngx_http_conf_client *ngx_http_create_client(ngx_cycle_t *cycle, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
+    ngx_http_upsync_server_t *upsync_server);
 static ngx_int_t ngx_http_client_conn(ngx_http_conf_client *client);
 static void ngx_http_client_destroy(ngx_http_conf_client *client);
 static ngx_int_t ngx_http_client_send(ngx_http_conf_client *client, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server);
-static ngx_int_t ngx_http_client_recv(ngx_http_conf_client *client, char **data, int size);
+    ngx_http_upsync_server_t *upsync_server);
+static ngx_int_t ngx_http_client_recv(ngx_http_conf_client *client, 
+    char **data, int size);
 
 static u_char *ngx_print_escape(u_char *dst, u_char *src, size_t len);
 
-static char *ngx_http_dynamic_update_upstream_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
-static ngx_int_t ngx_http_dynamic_update_upstream_show(ngx_http_request_t *r);
+static char *ngx_http_upsync_set(ngx_conf_t *cf, ngx_command_t *cmd, 
+    void *conf);
+static ngx_int_t ngx_http_upsync_show(ngx_http_request_t *r);
 
 
 static http_parser_settings settings = {
@@ -301,33 +305,33 @@ static http_parser_settings settings = {
     .on_message_complete = 0
 };
 
-ngx_atomic_t   dynamic_shared_created0;
-ngx_atomic_t  *dynamic_shared_created = &dynamic_shared_created0;
+ngx_atomic_t   upsync_shared_created0;
+ngx_atomic_t  *upsync_shared_created = &upsync_shared_created0;
 
 static http_parser *parser = NULL;
 static ngx_http_state state;
 
-static ngx_http_dynamic_update_upstream_main_conf_t  *dynamic_upstream_ctx = NULL;
+static ngx_http_upsync_main_conf_t  *upsync_ctx = NULL;
 
-static ngx_command_t  ngx_http_dynamic_update_upstream_commands[] = {
+static ngx_command_t  ngx_http_upsync_commands[] = {
 
     {  ngx_string("consul"),
         NGX_HTTP_UPS_CONF|NGX_CONF_1MORE,
-        ngx_http_dynamic_update_upstream_consul_server,
+        ngx_http_upsync_consul_server,
         NGX_HTTP_SRV_CONF_OFFSET,
         0,
         NULL },
 
     {  ngx_string("upstream_conf_path"),
         NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
-        ngx_http_dynamic_update_upstream_set_conf_dump,
+        ngx_http_upsync_set_conf_dump,
         NGX_HTTP_SRV_CONF_OFFSET,
         0,
         NULL },
 
     {  ngx_string("upstream_show"),
         NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
-        ngx_http_dynamic_update_upstream_set,
+        ngx_http_upsync_set,
         0,
         0,
         NULL },
@@ -336,53 +340,53 @@ static ngx_command_t  ngx_http_dynamic_update_upstream_commands[] = {
 };
 
 
-static ngx_http_module_t  ngx_http_dynamic_update_upstream_module_ctx = {
-    NULL,                                              /* preconfiguration */
-    NULL,                                              /* postconfiguration */
+static ngx_http_module_t  ngx_http_upsync_module_ctx = {
+    NULL,                                       /* preconfiguration */
+    NULL,                                       /* postconfiguration */
 
-    ngx_http_dynamic_update_upstream_create_main_conf, /* create main configuration */
-    ngx_http_dynamic_update_upstream_init_main_conf,   /* init main configuration */
+    ngx_http_upsync_create_main_conf,           /* create main configuration */
+    ngx_http_upsync_init_main_conf,             /* init main configuration */
 
-    ngx_http_dynamic_update_upstream_create_srv_conf,  /* create server configuration */
-    NULL,                                              /* merge server configuration */
+    ngx_http_upsync_create_srv_conf,            /* create server configuration */
+    NULL,                                       /* merge server configuration */
 
-    NULL,                                             /* create location configuration */
-    NULL                                              /* merge main configuration */
+    NULL,                                       /* create location configuration */
+    NULL                                        /* merge main configuration */
 };
 
 
-ngx_module_t  ngx_http_dynamic_update_upstream_module = {
+ngx_module_t  ngx_http_upsync_module = {
     NGX_MODULE_V1,
-    &ngx_http_dynamic_update_upstream_module_ctx, /* module context */
-    ngx_http_dynamic_update_upstream_commands,    /* module directives */
-    NGX_HTTP_MODULE,                              /* module type */
-    NULL,                                         /* init master */
-    ngx_http_dynamic_update_upstream_init_module, /* init module */
-    ngx_http_dynamic_update_upstream_init_process,/* init process */
-    NULL,                                         /* init thread */
-    NULL,                                         /* exit thread */
-    NULL,                                         /* exit process */
-    NULL,                                         /* exit master */
+    &ngx_http_upsync_module_ctx,                /* module context */
+    ngx_http_upsync_commands,                   /* module directives */
+    NGX_HTTP_MODULE,                            /* module type */
+    NULL,                                       /* init master */
+    ngx_http_upsync_init_module,                /* init module */
+    ngx_http_upsync_init_process,               /* init process */
+    NULL,                                       /* init thread */
+    NULL,                                       /* exit thread */
+    NULL,                                       /* exit process */
+    NULL,                                       /* exit master */
     NGX_MODULE_V1_PADDING
 };
 
 
 static char *
-ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ngx_http_upsync_consul_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    u_char                                       *p = NULL;
-    time_t                                        update_timeout = 0, update_interval = 0;
-    ngx_str_t                                    *value, s;
-    ngx_url_t                                     u;
-    ngx_uint_t                                    i, strong_dependency = 0;
-    ngx_http_upstream_server_t                   *us;
-    ngx_http_dynamic_update_upstream_srv_conf_t  *duscf;
+    u_char                             *p = NULL;
+    time_t                              update_timeout = 0, update_interval = 0;
+    ngx_str_t                          *value, s;
+    ngx_url_t                           u;
+    ngx_uint_t                          i, strong_dependency = 0;
+    ngx_http_upstream_server_t         *consul;
+    ngx_http_upsync_srv_conf_t         *upscf;
 
     value = cf->args->elts;
 
-    duscf = ngx_http_conf_get_module_srv_conf(cf,
-                                              ngx_http_dynamic_update_upstream_module);
-    us = &duscf->us;
+    upscf = ngx_http_conf_get_module_srv_conf(cf,
+                                              ngx_http_upsync_module);
+    consul = &upscf->consul;
 
     for (i = 2; i < cf->args->nelts; i++) {
 
@@ -392,7 +396,6 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
             s.data = &value[i].data[15];
 
             update_timeout = ngx_parse_time(&s, 0);
-
             if (update_timeout == (time_t) NGX_ERROR) {
                 goto invalid;
             }
@@ -406,7 +409,6 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
             s.data = &value[i].data[16];
 
             update_interval = ngx_parse_time(&s, 0);
-
             if (update_interval == (time_t) NGX_ERROR) {
                 goto invalid;
             }
@@ -437,15 +439,13 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
     }
 
     if (update_interval != 0) {
-        duscf->update_interval = update_interval;
+        upscf->update_interval = update_interval;
     }
-
     if (update_timeout != 0) {
-        duscf->update_timeout = update_timeout;
+        upscf->update_timeout = update_timeout;
     }
-
     if (strong_dependency != 0) {
-        duscf->strong_dependency = strong_dependency;
+        upscf->strong_dependency = strong_dependency;
     }
 
     ngx_memzero(&u, sizeof(ngx_url_t));
@@ -453,81 +453,82 @@ ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, ngx_command_t *cm
     p = (u_char *)ngx_strchr(value[1].data, '/');
     if (p == NULL) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                "dynamic_update_upstream_consul_server: please input consul upstream key in upstream");
+                           "upsync_consul_server: "
+                           "please input consul upstream key in upstream");
         return NGX_CONF_ERROR;
     }
-    duscf->update_send.data = p;
-    duscf->update_send.len = value[1].len - (p - value[1].data);
+    upscf->update_send.data = p;
+    upscf->update_send.len = value[1].len - (p - value[1].data);
 
     u.url.data = value[1].data;
     u.url.len = p - value[1].data;
 
     p = (u_char *)ngx_strchr(value[1].data, ':');
     if (p != NULL) {
-        duscf->consul_host.data = value[1].data;
-        duscf->consul_host.len = p - value[1].data;
+        upscf->consul_host.data = value[1].data;
+        upscf->consul_host.len = p - value[1].data;
 
-        duscf->consul_port = ngx_atoi(p + 1, duscf->update_send.data - p - 1);
-        if (duscf->consul_port < 1 || duscf->consul_port > 65535) {
+        upscf->consul_port = ngx_atoi(p + 1, upscf->update_send.data - p - 1);
+        if (upscf->consul_port < 1 || upscf->consul_port > 65535) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                        "dynamic_update_upstream_consul_server: consul server port is invalid");
+                               "upsync_consul_server: "
+                               "consul server port is invalid");
             return NGX_CONF_ERROR;
         }
 
     } else {
-        duscf->consul_host.data = value[1].data;
-        duscf->consul_host.len = u.url.len;
+        upscf->consul_host.data = value[1].data;
+        upscf->consul_host.len = u.url.len;
 
-        duscf->consul_port = 80;
+        upscf->consul_port = 80;
     }
 
     u.default_port = 80;
-
     if (ngx_parse_url(cf->pool, &u) != NGX_OK) {
         if (u.err) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                        "dynamic_update_upstream_consul_server: %s in upstream \"%V\"", u.err, &u.url);
+                               "upsync_consul_server: "
+                               "%s in upstream \"%V\"", u.err, &u.url);
         }
-
         return NGX_CONF_ERROR;
     }
 
-    us->name = u.url;
-    us->addrs = u.addrs;
-    us->naddrs = u.naddrs;
-    us->weight = 1;
-    us->max_fails = 1;
-    us->fail_timeout = 10;
+    consul->name = u.url;
+    consul->addrs = u.addrs;
+    consul->naddrs = u.naddrs;
+    consul->weight = 1;
+    consul->max_fails = 1;
+    consul->fail_timeout = 10;
 
     return NGX_CONF_OK;
 
 invalid:
 
     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                "dynamic_update_upstream_consul_server: consul invalid parameter \"%V\"", &value[i]);
+                       "upsync_consul_server: "
+                       "consul invalid parameter \"%V\"", &value[i]);
 
     return NGX_CONF_ERROR;
 }
 
 
 static char *
-ngx_http_dynamic_update_upstream_set_conf_dump(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ngx_http_upsync_set_conf_dump(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    ngx_str_t                                        *value;
-    ngx_http_dynamic_update_upstream_srv_conf_t      *duscf;
+    ngx_str_t                         *value;
+    ngx_http_upsync_srv_conf_t        *upscf;
 
-    duscf = ngx_http_conf_get_module_srv_conf(cf,
-                                              ngx_http_dynamic_update_upstream_module);
-
+    upscf = ngx_http_conf_get_module_srv_conf(cf,
+                                              ngx_http_upsync_module);
     value = cf->args->elts;
 
-    duscf->upstream_conf_path = value[1]; 
-    if (duscf->upstream_conf_path.len == NGX_CONF_UNSET_SIZE) {
+    upscf->upstream_conf_path = value[1]; 
+    if (upscf->upstream_conf_path.len == NGX_CONF_UNSET_SIZE) {
         return NGX_CONF_ERROR; 
     }
 
-    duscf->conf_file = ngx_conf_open_file(cf->cycle, &value[1]); 
-    if (duscf->conf_file == NULL) {
+    upscf->conf_file = ngx_conf_open_file(cf->cycle, &value[1]); 
+    if (upscf->conf_file == NULL) {
         return NGX_CONF_ERROR; 
     }
 
@@ -536,25 +537,23 @@ ngx_http_dynamic_update_upstream_set_conf_dump(ngx_conf_t *cf, ngx_command_t *cm
 
 
 static void
-ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server_t *conf_server)
+ngx_http_upsync_process(ngx_http_upsync_server_t *upsync_server)
 {
-    char                                         *p;
-    ngx_buf_t                                    *buf;
-    ngx_int_t                                     index = 0;
-    ngx_uint_t                                    i;
-    ngx_uint_t                                    add_flag=0, del_flag=0, weight_flag=0;
-    ngx_http_dynamic_update_upstream_ctx_t       *ctx;
-    ngx_http_dynamic_update_upstream_srv_conf_t  *conf;
+    char                        *p;
+    ngx_buf_t                   *buf;
+    ngx_int_t                    index = 0;
+    ngx_uint_t                   i, add_flag = 0, del_flag = 0, weight_flag = 0;
+    ngx_http_upsync_ctx_t       *ctx;
+    ngx_http_upsync_srv_conf_t  *upscf;
 
-    ctx = &conf_server->ctx;
-    conf = conf_server->conf;
+    ctx = &upsync_server->ctx;
+    upscf = upsync_server->upscf;
 
     buf = &ctx->body;
-
     for (i = 0; i < state.num_headers; i++) {
-        if (ngx_memcmp(state.headers[i][0], NGX_INDEX_HEARDER, 
-                    NGX_INDEX_HEARDER_LEN) == 0) {
 
+        if (ngx_memcmp(state.headers[i][0], NGX_INDEX_HEARDER, 
+                       NGX_INDEX_HEARDER_LEN) == 0) {
             p = ngx_strchr(state.headers[i][1], '\r');
             *p = '\0';
             index = ngx_atoi((u_char *)state.headers[i][1], 
@@ -563,64 +562,64 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
         }
     }
 
-    if (index == conf_server->index) {
+    if (index == upsync_server->index) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "[NOTICE]:"
-                "dynamic_update_upstream_process: index is not change in upstream: %V",
-                &conf->upstream_conf_path);
+                      "upsync_process: index is not change in upstream: %V",
+                      &upscf->upstream_conf_path);
         return;
 
     } else {
-        conf_server->index = index;
+        upsync_server->index = index;
     }
 
-    if (ngx_http_dynamic_update_upstream_parse_json(buf->pos, conf_server) == NGX_ERROR) {
+    if (ngx_http_upsync_parse_json(buf->pos, upsync_server) == NGX_ERROR) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "dynamic_update_upstream_process: parse json error");
+                      "upsync_process: parse json error");
         return;
     }
 
     ngx_log_debug0(NGX_LOG_DEBUG, ngx_cycle->log, 0,
-            "dynamic_update_upstream_process: parse json succeed");
+                   "upsync_process: parse json succeed");
 
-    ngx_http_dynamic_update_upstream_add_check((ngx_cycle_t *)ngx_cycle, conf_server);
+    ngx_http_upsync_add_check((ngx_cycle_t *)ngx_cycle, upsync_server);
     if (ctx->add_upstream.nelts > 0) {
 
-        if (ngx_http_dynamic_update_upstream_add_server((ngx_cycle_t *)ngx_cycle, 
-                    conf_server) != NGX_OK) {
+        if (ngx_http_upsync_add_server((ngx_cycle_t *)ngx_cycle, 
+                                       upsync_server) != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                    "dynamic_update_upstream_process: upstream add server error");
+                          "upsync_process: upstream add server error");
             return;
         }
         add_flag = 1;
     }
 
-    ngx_http_dynamic_update_upstream_del_check((ngx_cycle_t *)ngx_cycle, conf_server);
+    ngx_http_upsync_del_check((ngx_cycle_t *)ngx_cycle, upsync_server);
     if (ctx->del_upstream.nelts > 0) {
 
-        if (ngx_http_dynamic_update_upstream_del_server((ngx_cycle_t *)ngx_cycle, 
-                    conf_server) != NGX_OK) {
+        if (ngx_http_upsync_del_server((ngx_cycle_t *)ngx_cycle, 
+                                       upsync_server) != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                    "dynamic_update_upstream_process: upstream del server error");
+                          "upsync_process: upstream del server error");
             return;
         }
         del_flag = 1;
     }
 
     if (!add_flag && !del_flag) {
-        if (ngx_http_dynamic_update_upstream_server_weight((ngx_cycle_t *)ngx_cycle, 
-                    conf_server) != NGX_OK) {
+        if (ngx_http_upsync_server_weight((ngx_cycle_t *)ngx_cycle, 
+                                           upsync_server) != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                    "dynamic_update_upstream_process: upstream change peer weight error");
+                          "upsync_process: upstream change peer weight error");
             return;
         }
         weight_flag = 1;
     }
 
     if (add_flag || del_flag || weight_flag) {
-        if (ngx_shmtx_trylock(&conf_server->dynamic_accept_mutex)) {
+        if (ngx_shmtx_trylock(&upsync_server->upsync_accept_mutex)) {
 
-            ngx_http_dynamic_update_upstream_dump_conf(conf_server);
-            ngx_shmtx_unlock(&conf_server->dynamic_accept_mutex);
+            ngx_http_upsync_dump_conf(upsync_server);
+            ngx_shmtx_unlock(&upsync_server->upsync_accept_mutex);
         }
     }
 
@@ -629,26 +628,25 @@ ngx_http_dynamic_update_upstream_process(ngx_http_dynamic_update_upstream_server
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server)
+ngx_http_upsync_add_server(ngx_cycle_t *cycle, 
+    ngx_http_upsync_server_t *upsync_server)
 {
-    u_char                                  *port, *p, *last, *pp;
-    ngx_int_t                                n;
-    ngx_uint_t                               i;
-    ngx_addr_t                              *addrs;
-    ngx_array_t                              servers;  /* ngx_http_upstream_server_t */
-    ngx_http_update_conf_t                  *conf;
-    ngx_http_upstream_server_t              *server;
-    ngx_http_dynamic_update_upstream_ctx_t  *ctx;
+    u_char                          *port, *p, *last, *pp;
+    ngx_int_t                        n;
+    ngx_uint_t                       i;
+    ngx_addr_t                      *addrs;
+    ngx_array_t                      servers;  /* ngx_http_upstream_server_t */
+    ngx_http_upsync_ctx_t           *ctx;
+    ngx_http_update_conf_t          *conf;
+    ngx_http_upstream_server_t      *server;
 
     struct sockaddr_in  *sin;
 
-    ctx = &conf_server->ctx;
+    ctx = &upsync_server->ctx;
 
     if (ngx_array_init(&servers, ctx->pool, 16, sizeof(*server)) != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "dynamic_update_upstream_add_server: alloc error");
-
+                      "upsync_add_server: alloc error");
         return NGX_ERROR;
     }
 
@@ -661,14 +659,14 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
         port = ngx_strlchr(p, last, ':');
         if (port == NULL) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "dynamic_update_upstream_add_server: has no port in %s", p);
+                          "upsync_add_server: has no port in %s", p);
             continue;
         }
 
         n = ngx_atoi(port + 1, last - port - 1);
         if (n < 1 || n > 65535) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "dynamic_update_upstream_add_server: invalid port in %s", p);
+                          "upsync_add_server: invalid port in %s", p);
             continue;
         }
 
@@ -683,7 +681,7 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
 
         if (sin->sin_addr.s_addr == INADDR_NONE) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "dynamic_update_upstream_add_server: invalid ip in %s", p);
+                          "upsync_add_server: invalid ip in %s", p);
             ngx_free(sin);
             continue;
         }
@@ -700,7 +698,6 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
         if (pp == NULL) {
             goto invalid;
         }
-
         addrs->name.len = ngx_sprintf(pp, "%s", p) - pp;
         addrs->name.data = pp;
 
@@ -709,7 +706,6 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
 
         server->addrs = addrs;
         server->naddrs = 1;
-
         server->down = conf->down;
         server->backup = conf->backup;
         server->weight = conf->weight;
@@ -718,8 +714,8 @@ ngx_http_dynamic_update_upstream_add_server(ngx_cycle_t *cycle,
     }
 
     if (servers.nelts > 0) {
-        if (ngx_http_dynamic_update_upstream_add_peer(cycle, &servers, 
-                    conf_server) != NGX_OK) {
+        if (ngx_http_upsync_add_peer(cycle, &servers, 
+                                     upsync_server) != NGX_OK) {
             goto invalid;
         }
     }
@@ -734,7 +730,6 @@ invalid:
         if (server->addrs->sockaddr != NULL) {
             ngx_free(server->addrs->sockaddr);
         }
-
         if (server->addrs->name.data != NULL) {
             ngx_free(server->addrs->name.data);
         }
@@ -747,19 +742,19 @@ invalid:
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_add_peer(ngx_cycle_t *cycle,
-        ngx_array_t *servers, ngx_http_dynamic_update_upstream_server_t *conf_server)
+ngx_http_upsync_add_peer(ngx_cycle_t *cycle,
+        ngx_array_t *servers, ngx_http_upsync_server_t *upsync_server)
 {
     ngx_uint_t                     i=0, n=0, w=0, m=0;
-    ngx_http_upstream_server_t    *server=NULL;
-    ngx_http_upstream_rr_peers_t  *peers=NULL, *tmp_peers=NULL;
+    ngx_http_upstream_server_t    *server = NULL;
+    ngx_http_upstream_rr_peers_t  *peers = NULL, *tmp_peers = NULL;
     ngx_http_upstream_srv_conf_t  *uscf;
 
-    uscf = conf_server->uscf;
+    uscf = upsync_server->uscf;
 
     if (servers->nelts < 1) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "dynamic_update_upstream_add_peer: no servers to add \"%V\"", &uscf->host);
+                      "upsync_add_peer: no servers to add \"%V\"", &uscf->host);
         return NGX_ERROR;
     }
 
@@ -771,7 +766,8 @@ ngx_http_dynamic_update_upstream_add_peer(ngx_cycle_t *cycle,
         n = tmp_peers->number + servers->nelts;
 
         peers = ngx_calloc(sizeof(ngx_http_upstream_rr_peers_t)
-                + sizeof(ngx_http_upstream_rr_peer_t) * (n - 1), cycle->log);
+                           + sizeof(ngx_http_upstream_rr_peer_t) * (n - 1), 
+                           cycle->log);
         if (peers == NULL) {
             goto invalid;
         }
@@ -797,10 +793,11 @@ ngx_http_dynamic_update_upstream_add_peer(ngx_cycle_t *cycle,
             peers->peer[m].current_weight = 0;
 
 #if (NGX_HTTP_UPSTREAM_CHECK) 
-            ngx_uint_t index = ngx_http_upstream_check_add_dynamic_peer(cycle->pool, uscf, server->addrs);
+            ngx_uint_t index;
+            index = ngx_http_upstream_check_add_dynamic_peer(cycle->pool, 
+                                                             uscf, server->addrs);
             peers->peer[m].check_index = index;
 #endif
-
             w += server->weight;
             m++;
         }
@@ -814,17 +811,17 @@ ngx_http_dynamic_update_upstream_add_peer(ngx_cycle_t *cycle,
         uscf->peer.data = peers;
         peers->next = tmp_peers->next;
 
-        ngx_http_dynamic_update_upstream_event_init(tmp_peers, conf_server, NGX_ADD);
+        ngx_http_upsync_event_init(tmp_peers, upsync_server, NGX_ADD);
     }
 
     return NGX_OK;
 
 invalid:
     ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-            "dynamic_update_upstream_add_peer: add failed \"%V\"", &uscf->host);
+                  "upsync_add_peer: add failed \"%V\"", &uscf->host);
 
     if (peers != NULL) {
-        ngx_http_dynamic_update_upstream_free(peers);
+        ngx_http_upsync_free(peers);
     }
     peers = NULL;
 
@@ -835,27 +832,26 @@ invalid:
 
 
 static void
-ngx_http_dynamic_update_upstream_add_check(ngx_cycle_t *cycle, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server)
+ngx_http_upsync_add_check(ngx_cycle_t *cycle, 
+    ngx_http_upsync_server_t *upsync_server)
 {
-    ngx_uint_t                               i, j, len;
-    ngx_http_update_conf_t                  *upstream_conf, *add_upstream;
-    ngx_http_upstream_rr_peers_t            *peers=NULL;
-    ngx_http_upstream_srv_conf_t            *uscf;
-    ngx_http_dynamic_update_upstream_ctx_t  *ctx;
+    ngx_uint_t                          i, j, len;
+    ngx_http_upsync_ctx_t              *ctx;
+    ngx_http_update_conf_t             *upstream_conf, *add_upstream;
+    ngx_http_upstream_rr_peers_t       *peers = NULL;
+    ngx_http_upstream_srv_conf_t       *uscf;
 
-    ctx = &conf_server->ctx;
+    ctx = &upsync_server->ctx;
 
     if (ngx_array_init(&ctx->add_upstream, ctx->pool, 16,
-                sizeof(*add_upstream)) != NGX_OK)
+                       sizeof(*add_upstream)) != NGX_OK)
     {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "dynamic_update_upstream_add_check: alloc error");
-
+                      "upsync_add_check: alloc error");
         return;
     }
 
-    uscf = conf_server->uscf;
+    uscf = upsync_server->uscf;
 
     if (uscf->peer.data != NULL) {
         peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
@@ -865,22 +861,20 @@ ngx_http_dynamic_update_upstream_add_check(ngx_cycle_t *cycle,
     }
 
     len = ctx->upstream_conf.nelts;
-
     for (i = 0; i < len; i++) {
         upstream_conf = (ngx_http_update_conf_t *)ctx->upstream_conf.elts + i;
 
         for (j = 0; j < peers->number; j++) {
 
             if (ngx_memcmp(peers->peer[j].name.data, 
-                        upstream_conf->sockaddr, peers->peer[j].name.len) == 0) {
-
+                           upstream_conf->sockaddr, peers->peer[j].name.len) 
+                    == 0) 
+            {
                 break;
             }
-
         }
 
         if (j == peers->number) {
-
             add_upstream = ngx_array_push(&ctx->add_upstream);
             ngx_memcpy(add_upstream, upstream_conf, sizeof(*upstream_conf));
         }
@@ -891,21 +885,21 @@ ngx_http_dynamic_update_upstream_add_check(ngx_cycle_t *cycle,
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server)
+ngx_http_upsync_del_server(ngx_cycle_t *cycle, 
+        ngx_http_upsync_server_t *upsync_server)
 {
-    u_char                                  *port, *p, *last, *pp;
-    ngx_int_t                                n, j;
-    ngx_uint_t                               i;
-    ngx_pool_t                              *pool;
-    ngx_addr_t                              *addrs;
-    ngx_http_update_conf_t                  *conf;
-    ngx_http_upstream_server_t               us;
-    ngx_http_dynamic_update_upstream_ctx_t  *ctx;
+    u_char                             *port, *p, *last, *pp;
+    ngx_int_t                           n, j;
+    ngx_uint_t                          i;
+    ngx_pool_t                         *pool;
+    ngx_addr_t                         *addrs;
+    ngx_http_upsync_ctx_t              *ctx;
+    ngx_http_update_conf_t             *conf;
+    ngx_http_upstream_server_t          us;
 
     struct sockaddr_in  *sin;
 
-    ctx = &conf_server->ctx;
+    ctx = &upsync_server->ctx;
     pool = ctx->pool;
 
     ngx_memzero(&us, sizeof(ngx_http_upstream_server_t));
@@ -924,7 +918,7 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
         port = ngx_strlchr(p, last, ':');
         if(port == NULL) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "dynamic_update_upstream_del_server: has no port in %s", p);
+                          "upsync_del_server: has no port in %s", p);
             j--;
             continue;
         }
@@ -932,7 +926,7 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
         n = ngx_atoi(port + 1, last - port - 1);
         if (n < 1 || n > 65535) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "dynamic_update_upstream_del_server: invalid port in %s", p);
+                          "upsync_del_server: invalid port in %s", p);
             j--;
             continue;
         }
@@ -948,7 +942,7 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
 
         if (sin->sin_addr.s_addr == INADDR_NONE) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "dynamic_update_upstream_del_server: invalid ip in %s", p);
+                          "upsync_del_server: invalid ip in %s", p);
             j--;
             continue;
         }
@@ -960,7 +954,6 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
         if (pp == NULL) {
             return NGX_ERROR;
         }
-
         addrs[j].name.len = ngx_sprintf(pp, "%s", p) - pp;
         addrs[j].name.data = pp;
     }
@@ -972,8 +965,8 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
     us.fail_timeout = 0;
 
     if (us.naddrs > 0) {
-        if (ngx_http_dynamic_update_upstream_del_peer(cycle, &us, 
-                    conf_server) != NGX_OK) {
+        if (ngx_http_upsync_del_peer(cycle, &us, 
+                                     upsync_server) != NGX_OK) {
             return NGX_ERROR;
         }
     }
@@ -983,24 +976,24 @@ ngx_http_dynamic_update_upstream_del_server(ngx_cycle_t *cycle,
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
-        ngx_http_upstream_server_t *us, ngx_http_dynamic_update_upstream_server_t *conf_server)
+ngx_http_upsync_del_peer(ngx_cycle_t *cycle,
+        ngx_http_upstream_server_t *us, ngx_http_upsync_server_t *upsync_server)
 {
     ngx_uint_t                          i, j, n=0, w=0, len=0;
-    ngx_http_upstream_rr_peers_t       *peers=NULL, *tmp_peers=NULL;
+    ngx_http_upstream_rr_peers_t       *peers = NULL, *tmp_peers = NULL;
     ngx_http_upstream_srv_conf_t       *uscf;
 
     len = sizeof(struct sockaddr);
 
-    uscf = conf_server->uscf;
+    uscf = upsync_server->uscf;
     if (uscf->peer.data != NULL) {
         tmp_peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
     }
 
     if (tmp_peers->number <= us->naddrs) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0, "[WARN]:"
-                "dynamic_update_upstream_del_peer: upstream \"%V\" cannt delete all", &uscf->host);
-
+                      "upsync_del_peer: upstream \"%V\" cannt delete all", 
+                      &uscf->host);
         return NGX_OK;
     }
 
@@ -1009,7 +1002,8 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
         w = tmp_peers->total_weight;
 
         peers = ngx_calloc(sizeof(ngx_http_upstream_rr_peers_t)
-                + sizeof(ngx_http_upstream_rr_peer_t) * (n - 1), cycle->log);
+                           + sizeof(ngx_http_upstream_rr_peer_t) * (n - 1), 
+                           cycle->log);
         if (peers == NULL) {
             goto invalid;
         }
@@ -1018,14 +1012,15 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
         for (i = 0; i < tmp_peers->number; i++) {
             for (j = 0; j < us->naddrs; j++) {
                 if (ngx_memn2cmp((u_char *) tmp_peers->peer[i].sockaddr, 
-                            (u_char *) us->addrs[j].sockaddr, len, len) == 0) {
+                                 (u_char *) us->addrs[j].sockaddr, len, len) 
+                        == 0) 
+                {
 
 #if (NGX_HTTP_UPSTREAM_CHECK) 
                     ngx_http_upstream_check_delete_dynamic_peer(
-                                                      tmp_peers->name, &us->addrs[j]);
+                                                tmp_peers->name, &us->addrs[j]);
                     tmp_peers->peer[i].check_index = NGX_MAX_VALUE;
 #endif
-
                     w -= tmp_peers->peer[i].weight;
                     break;
                 }
@@ -1060,17 +1055,17 @@ ngx_http_dynamic_update_upstream_del_peer(ngx_cycle_t *cycle,
         uscf->peer.data = peers;
         peers->next = tmp_peers->next;
 
-        ngx_http_dynamic_update_upstream_event_init(tmp_peers, conf_server, NGX_DEL);
+        ngx_http_upsync_event_init(tmp_peers, upsync_server, NGX_DEL);
     }
 
     return NGX_OK;
 
 invalid:
     ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-            "dynamic_update_upstream_del_peer: del failed \"%V\"", &uscf->host);
+                  "upsync_del_peer: del failed \"%V\"", &uscf->host);
 
     if (peers != NULL) {
-        ngx_http_dynamic_update_upstream_free(peers);
+        ngx_http_upsync_free(peers);
     }
     peers = NULL;
 
@@ -1081,27 +1076,25 @@ invalid:
 
 
 static void
-ngx_http_dynamic_update_upstream_del_check(ngx_cycle_t *cycle, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server)
+ngx_http_upsync_del_check(ngx_cycle_t *cycle, 
+        ngx_http_upsync_server_t *upsync_server)
 {
-    ngx_uint_t                               i, j, len;
-    ngx_http_update_conf_t                  *upstream_conf, *del_upstream;
-    ngx_http_upstream_rr_peers_t            *peers = NULL;
-    ngx_http_upstream_srv_conf_t            *uscf;
-    ngx_http_dynamic_update_upstream_ctx_t  *ctx;
+    ngx_uint_t                         i, j, len;
+    ngx_http_upsync_ctx_t             *ctx;
+    ngx_http_update_conf_t            *upstream_conf, *del_upstream;
+    ngx_http_upstream_rr_peers_t      *peers = NULL;
+    ngx_http_upstream_srv_conf_t      *uscf;
 
-    ctx = &conf_server->ctx;
+    ctx = &upsync_server->ctx;
 
     if (ngx_array_init(&ctx->del_upstream, ctx->pool, 16,
-                sizeof(*del_upstream)) != NGX_OK)
-    {
+                       sizeof(*del_upstream)) != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "dynamic_update_upstream_del_check: alloc error");
-
+                      "upsync_del_check: alloc error");
         return;
     }
 
-    uscf = conf_server->uscf;
+    uscf = upsync_server->uscf;
 
     if (uscf->peer.data != NULL) {
         peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
@@ -1117,18 +1110,17 @@ ngx_http_dynamic_update_upstream_del_check(ngx_cycle_t *cycle,
 
             upstream_conf = (ngx_http_update_conf_t *)ctx->upstream_conf.elts + j;
             if (ngx_memcmp(peers->peer[i].name.data, 
-                        upstream_conf->sockaddr, peers->peer[i].name.len) == 0) {
-
+                           upstream_conf->sockaddr, peers->peer[i].name.len) 
+                    == 0) 
+            {
                 break;
             }
         }
 
         if (j == len) {
-
             del_upstream = ngx_array_push(&ctx->del_upstream);
             ngx_memzero(del_upstream, sizeof(*del_upstream));
             ngx_memcpy(&del_upstream->sockaddr, peers->peer[i].name.data, peers->peer[i].name.len);
-
         }
     }
 
@@ -1137,18 +1129,18 @@ ngx_http_dynamic_update_upstream_del_check(ngx_cycle_t *cycle,
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_server_weight(ngx_cycle_t *cycle,
-        ngx_http_dynamic_update_upstream_server_t *conf_server)
+ngx_http_upsync_server_weight(ngx_cycle_t *cycle,
+        ngx_http_upsync_server_t *upsync_server)
 {
-    ngx_uint_t                               i, j, w=0, len=0;
-    ngx_http_update_conf_t                  *upstream_conf;
-    ngx_http_upstream_srv_conf_t            *uscf;
-    ngx_http_upstream_rr_peers_t            *peers=NULL;
-    ngx_http_dynamic_update_upstream_ctx_t  *ctx;
+    ngx_uint_t                           i, j, w=0, len=0;
+    ngx_http_upsync_ctx_t               *ctx;
+    ngx_http_update_conf_t              *upstream_conf;
+    ngx_http_upstream_srv_conf_t        *uscf;
+    ngx_http_upstream_rr_peers_t        *peers = NULL;
 
-    ctx = &conf_server->ctx;
+    ctx = &upsync_server->ctx;
 
-    uscf = conf_server->uscf;
+    uscf = upsync_server->uscf;
 
     if (uscf->peer.data != NULL) {
         peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
@@ -1162,14 +1154,14 @@ ngx_http_dynamic_update_upstream_server_weight(ngx_cycle_t *cycle,
     }
 
     len = ctx->upstream_conf.nelts;
-
     for (i = 0; i < peers->number; i++) {
         for (j = 0; j < len; j++) {
 
             upstream_conf = (ngx_http_update_conf_t *)ctx->upstream_conf.elts + j;
             if (ngx_memcmp(peers->peer[i].name.data, 
-                        upstream_conf->sockaddr, peers->peer[i].name.len) == 0) {
-
+                           upstream_conf->sockaddr, peers->peer[i].name.len) 
+                    == 0) 
+            {
                 peers->peer[i].weight = upstream_conf->weight;
                 w += upstream_conf->weight;
 
@@ -1186,16 +1178,15 @@ ngx_http_dynamic_update_upstream_server_weight(ngx_cycle_t *cycle,
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_parse_json(u_char *buf, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server)
+ngx_http_upsync_parse_json(u_char *buf, ngx_http_upsync_server_t *upsync_server)
 {
-    u_char                                  *p;
-    ngx_int_t                                max_fails=2, backup=0, down=0;
-    ngx_str_t                                src, dst;
-    ngx_http_update_conf_t                  *upstream_conf=NULL;
-    ngx_http_dynamic_update_upstream_ctx_t  *ctx;
+    u_char                          *p;
+    ngx_int_t                       max_fails=2, backup=0, down=0;
+    ngx_str_t                       src, dst;
+    ngx_http_upsync_ctx_t          *ctx;
+    ngx_http_update_conf_t         *upstream_conf = NULL;
 
-    ctx = &conf_server->ctx;
+    ctx = &upsync_server->ctx;
     ctx->upstream_count = 0;
 
     src.len = 0, src.data = NULL;
@@ -1204,18 +1195,16 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
     cJSON *root = cJSON_Parse((char *)buf);
     if (root == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "dynamic_update_upstream_parse_json: root error");
-
+                      "upsync_parse_json: root error");
         return NGX_ERROR;
     }
 
     ctx->upstream_count++;
     if (ngx_array_init(&ctx->upstream_conf, ctx->pool, 16,
-                sizeof(*upstream_conf)) != NGX_OK)
+                       sizeof(*upstream_conf)) != NGX_OK)
     {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "dynamic_update_upstream_parse_json: array init error");
-
+                      "upsync_parse_json: array init error");
         return NGX_ERROR;
     }
 
@@ -1226,7 +1215,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
         cJSON *temp1 = cJSON_GetObjectItem(server_next, "Key");
         if (temp1 != NULL && temp1->valuestring != NULL) {
             p = (u_char *)ngx_strrchr(temp1->valuestring, '/');
-            if (ngx_http_dynamic_update_upstream_check_key(p) != NGX_OK) {
+            if (ngx_http_upsync_check_key(p) != NGX_OK) {
                 continue;
             }
 
@@ -1244,6 +1233,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
 
             if (dst.data == NULL) {
                 dst.data = ngx_pcalloc(ctx->pool, 1024);
+
             } else {
                 ngx_memzero(dst.data, 1024);
             }
@@ -1269,8 +1259,8 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
             cJSON *sub_root = cJSON_Parse((char *)p);
             if (sub_root == NULL) {
                 ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                        "dynamic_update_upstream_parse_json: parse server attribute json failed,"
-                        "setting server attribute to default value");
+                              "upsync_parse_json: parse attribute json failed,"
+                              "setting server attribute to default value");
                 continue;
             }
 
@@ -1280,12 +1270,11 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
 
                 if (temp1->valuestring != NULL) {
                     upstream_conf->weight = ngx_atoi((u_char *)temp1->valuestring, 
-                                                (size_t)ngx_strlen(temp1->valuestring));
+                                            (size_t)ngx_strlen(temp1->valuestring));
 
                 } else if (temp1->valueint >= 0) {
                     upstream_conf->weight = temp1->valueint;
                 }
-
             }
             temp1 = NULL;
 
@@ -1294,12 +1283,11 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
 
                 if (temp1->valuestring != NULL) {
                     max_fails = ngx_atoi((u_char *)temp1->valuestring, 
-                                                (size_t)ngx_strlen(temp1->valuestring));
+                                         (size_t)ngx_strlen(temp1->valuestring));
 
                 } else if (temp1->valueint >= 0) {
                     max_fails = temp1->valueint;
                 }
-
             }
             temp1 = NULL;
 
@@ -1314,7 +1302,6 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
                 } else if (temp1->valueint >= 0) {
                     upstream_conf->fail_timeout = temp1->valueint;
                 }
-
             }
             temp1 = NULL;
 
@@ -1323,10 +1310,10 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
                     
                 if (temp1->valueint != 0) {
                     down = temp1->valueint;
-                } else if (temp1->valuestring != NULL) {
 
+                } else if (temp1->valuestring != NULL) {
                     down = ngx_atoi((u_char *)temp1->valuestring, 
-                                                (size_t)ngx_strlen(temp1->valuestring));
+                                    (size_t)ngx_strlen(temp1->valuestring));
                 }
             }
             temp1 = NULL;
@@ -1336,10 +1323,10 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
                     
                 if (temp1->valueint != 0) {
                     backup = temp1->valueint;
-                } else if (temp1->valuestring != NULL) {
 
+                } else if (temp1->valuestring != NULL) {
                     backup = ngx_atoi((u_char *)temp1->valuestring, 
-                                                (size_t)ngx_strlen(temp1->valuestring));
+                                      (size_t)ngx_strlen(temp1->valuestring));
                 }
             }
             temp1 = NULL;
@@ -1350,33 +1337,38 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
 
         if (upstream_conf->weight <= 0) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                        "dynamic_update_upstream_parse_json: \"weight\" value is invalid and seting to 1");
+                          "upsync_parse_json: \"weight\" value is invalid"
+                          " and seting to 1");
             upstream_conf->weight = 1;
         }
 
         if (max_fails < 0) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                        "dynamic_update_upstream_parse_json: \"max_fails\" value is invalid, seting to 2");
+                          "upsync_parse_json: \"max_fails\" value is invalid"
+                          " and seting to 2");
         } else {
             upstream_conf->max_fails = (ngx_uint_t)max_fails;
         }
 
         if (upstream_conf->fail_timeout < 0) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                        "dynamic_update_upstream_parse_json: \"fail_timeout\" value is invalid, seting to 10");
+                          "upsync_parse_json: \"fail_timeout\" value is invalid"
+                          " and seting to 10");
             upstream_conf->fail_timeout = 10;
         }
 
         if (down != 1 && down != 0) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                        "dynamic_update_upstream_parse_json: \"down\" value is invalid, seting to 0");
+                          "upsync_parse_json: \"down\" value is invalid"
+                          " and seting to 0");
         } else {
             upstream_conf->down = (ngx_uint_t)down;
         }
 
         if (backup != 1 && backup != 0) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                        "dynamic_update_upstream_parse_json: \"backup\" value is invalid, seting to 0");
+                          "upsync_parse_json: \"backup\" value is invalid"
+                          " and seting to 0");
         } else {
             upstream_conf->backup = (ngx_uint_t)backup;
         }
@@ -1389,7 +1381,7 @@ ngx_http_dynamic_update_upstream_parse_json(u_char *buf,
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_check_key(u_char *key)
+ngx_http_upsync_check_key(u_char *key)
 {
     u_char          *last, *ip_p, *port_p;
     ngx_int_t        port;
@@ -1397,14 +1389,14 @@ ngx_http_dynamic_update_upstream_check_key(u_char *key)
     port_p = (u_char *)ngx_strchr(key, ':');
     if (port_p == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, 
-                    "dynamic_update_upstream_check_key: has no port in %s", key);
+                      "upsync_check_key: has no port in %s", key);
         return NGX_ERROR;
     }
 
     ip_p = key + 1;
     if (ngx_inet_addr(ip_p, port_p - ip_p) == INADDR_NONE) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, 
-                    "dynamic_update_upstream_check_key: invalid ip in %s", key);
+                      "upsync_check_key: invalid ip in %s", key);
         return NGX_ERROR;
     }
 
@@ -1412,7 +1404,7 @@ ngx_http_dynamic_update_upstream_check_key(u_char *key)
     port = ngx_atoi(port_p + 1, last - port_p - 1);
     if (port < 1 || port > 65535) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, 
-                    "dynamic_update_upstream_check_key: invalid port in %s", key);
+                      "upsync_check_key: invalid port in %s", key);
         return NGX_ERROR;
     }
 
@@ -1421,7 +1413,7 @@ ngx_http_dynamic_update_upstream_check_key(u_char *key)
 
 
 static void
-ngx_http_dynamic_update_upstream_free(ngx_http_upstream_rr_peers_t *peers)
+ngx_http_upsync_free(ngx_http_upstream_rr_peers_t *peers)
 {
     if (peers != NULL) {
         ngx_free(peers);
@@ -1433,49 +1425,46 @@ ngx_http_dynamic_update_upstream_free(ngx_http_upstream_rr_peers_t *peers)
 
 
 static void *
-ngx_http_dynamic_update_upstream_create_main_conf(ngx_conf_t *cf)
+ngx_http_upsync_create_main_conf(ngx_conf_t *cf)
 {
-    ngx_http_dynamic_update_upstream_main_conf_t  *conf;
+    ngx_http_upsync_main_conf_t       *upmcf;
 
-    conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_dynamic_update_upstream_main_conf_t));
-    if (conf == NULL) {
+    upmcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_upsync_main_conf_t));
+    if (upmcf == NULL) {
         return NULL;
     }
 
-    conf->upstream_num = NGX_CONF_UNSET_UINT;
+    upmcf->upstream_num = NGX_CONF_UNSET_UINT;
+    upmcf->upsync_server = NGX_CONF_UNSET_PTR;
 
-    conf->conf_server = NGX_CONF_UNSET_PTR;
-
-    return conf;
+    return upmcf;
 }
 
 
 static char *
-ngx_http_dynamic_update_upstream_init_main_conf(ngx_conf_t *cf, void *conf)
+ngx_http_upsync_init_main_conf(ngx_conf_t *cf, void *conf)
 {
     ngx_uint_t                                     i;
+    ngx_http_upsync_main_conf_t                   *upmcf = conf;
     ngx_http_upstream_srv_conf_t                 **uscfp;
     ngx_http_upstream_main_conf_t                 *umcf;
-    ngx_http_dynamic_update_upstream_main_conf_t  *dumcf = conf;
 
     umcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
 
-    dumcf->conf_server = ngx_pcalloc(cf->pool, 
-            umcf->upstreams.nelts * sizeof(ngx_http_dynamic_update_upstream_server_t));
+    upmcf->upsync_server = ngx_pcalloc(cf->pool, 
+                      umcf->upstreams.nelts * sizeof(ngx_http_upsync_server_t));
 
-    if (dumcf->conf_server == NULL) {
+    if (upmcf->upsync_server == NULL) {
         return NGX_CONF_ERROR;
     }
 
-    dumcf->upstream_num = 0;
-
-    dynamic_upstream_ctx = dumcf;
-
+    upmcf->upstream_num = 0;
+    upsync_ctx = upmcf;
     uscfp = umcf->upstreams.elts;
 
     for (i = 0; i < umcf->upstreams.nelts; i++) {
 
-        if (ngx_http_dynamic_update_upstream_init_srv_conf(cf, uscfp[i], i) != NGX_OK) {
+        if (ngx_http_upsync_init_srv_conf(cf, uscfp[i], i) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
     }
@@ -1485,126 +1474,123 @@ ngx_http_dynamic_update_upstream_init_main_conf(ngx_conf_t *cf, void *conf)
 
 
 static void *
-ngx_http_dynamic_update_upstream_create_srv_conf(ngx_conf_t *cf)
+ngx_http_upsync_create_srv_conf(ngx_conf_t *cf)
 {
-    ngx_http_dynamic_update_upstream_srv_conf_t  *duscf;
+    ngx_http_upsync_srv_conf_t  *upscf;
 
-    duscf = ngx_pcalloc(cf->pool, sizeof(ngx_http_dynamic_update_upstream_srv_conf_t));
-    if (duscf == NULL) {
+    upscf = ngx_pcalloc(cf->pool, sizeof(ngx_http_upsync_srv_conf_t));
+    if (upscf == NULL) {
         return NULL;
     }
 
-    duscf->consul_host.len = NGX_CONF_UNSET_SIZE;
-    duscf->consul_host.data = NGX_CONF_UNSET_PTR;
+    upscf->consul_host.len = NGX_CONF_UNSET_SIZE;
+    upscf->consul_host.data = NGX_CONF_UNSET_PTR;
 
-    duscf->consul_port = NGX_CONF_UNSET;
+    upscf->consul_port = NGX_CONF_UNSET;
 
-    duscf->upstream_conf_path.len = NGX_CONF_UNSET_SIZE;
-    duscf->upstream_conf_path.data = NGX_CONF_UNSET_PTR;
+    upscf->upstream_conf_path.len = NGX_CONF_UNSET_SIZE;
+    upscf->upstream_conf_path.data = NGX_CONF_UNSET_PTR;
 
-    duscf->update_timeout = NGX_CONF_UNSET_MSEC;
-    duscf->update_interval = NGX_CONF_UNSET_MSEC;
+    upscf->update_timeout = NGX_CONF_UNSET_MSEC;
+    upscf->update_interval = NGX_CONF_UNSET_MSEC;
 
-    duscf->strong_dependency = NGX_CONF_UNSET_UINT;
+    upscf->strong_dependency = NGX_CONF_UNSET_UINT;
 
-    duscf->conf_file = NGX_CONF_UNSET_PTR;
+    upscf->conf_file = NGX_CONF_UNSET_PTR;
 
-    ngx_memzero(&duscf->us, sizeof(duscf->us));
+    ngx_memzero(&upscf->consul, sizeof(upscf->consul));
 
-    return duscf;
+    return upscf;
 }
 
 
 static char *
-ngx_http_dynamic_update_upstream_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_uint_t num)
+ngx_http_upsync_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_uint_t num)
 {
     u_char                                      *buf;
+    ngx_http_upsync_server_t                    *upsync_server;
+    ngx_http_upsync_srv_conf_t                  *upscf;
     ngx_http_upstream_srv_conf_t                *uscf = conf;
-    ngx_http_dynamic_update_upstream_server_t   *conf_server;
-    ngx_http_dynamic_update_upstream_srv_conf_t *duscf;
 
     if (uscf->srv_conf == NULL) {
         return NGX_CONF_OK;
     }
 
-    duscf = ngx_http_conf_upstream_srv_conf(uscf, ngx_http_dynamic_update_upstream_module);
-
-    if (duscf->consul_host.data == NGX_CONF_UNSET_PTR 
-        && duscf->consul_host.len == NGX_CONF_UNSET_SIZE) {
+    upscf = ngx_http_conf_upstream_srv_conf(uscf, ngx_http_upsync_module);
+    if (upscf->consul_host.data == NGX_CONF_UNSET_PTR 
+        && upscf->consul_host.len == NGX_CONF_UNSET_SIZE) {
         return NGX_CONF_OK;
     }
 
-    dynamic_upstream_ctx->upstream_num++;
+    upsync_ctx->upstream_num++;
 
-    conf_server = &dynamic_upstream_ctx->conf_server[dynamic_upstream_ctx->upstream_num - 1];
-
-    if (conf_server == NULL) {
+    upsync_server = &upsync_ctx->upsync_server[upsync_ctx->upstream_num - 1];
+    if (upsync_server == NULL) {
         return NGX_CONF_ERROR;
     }
 
-    if (duscf->update_timeout == NGX_CONF_UNSET_MSEC) {
-        duscf->update_timeout = 1000 * 60 * 6;
+    if (upscf->update_timeout == NGX_CONF_UNSET_MSEC) {
+        upscf->update_timeout = 1000 * 60 * 6;
     }
 
-    if (duscf->update_interval == NGX_CONF_UNSET_MSEC) {
-        duscf->update_interval = 1000 * 5;
+    if (upscf->update_interval == NGX_CONF_UNSET_MSEC) {
+        upscf->update_interval = 1000 * 5;
     }
 
-    if (duscf->strong_dependency == NGX_CONF_UNSET_UINT) {
-        duscf->strong_dependency = 0;
+    if (upscf->strong_dependency == NGX_CONF_UNSET_UINT) {
+        upscf->strong_dependency = 0;
     }
 
-    if (duscf->upstream_conf_path.len == NGX_CONF_UNSET_SIZE) {
-        buf = ngx_pcalloc(cf->pool, ngx_strlen("/usr/local/nginx/conf/upstreams/upstream_.conf")
-                          + uscf->host.len + 1);
-        ngx_sprintf(buf, "/usr/local/nginx/conf/upstreams/upstream_%V.conf", &uscf->host);
+    if (upscf->upstream_conf_path.len == NGX_CONF_UNSET_SIZE) {
+        buf = ngx_pcalloc(cf->pool, 
+                          ngx_strlen("/tmp/upstream_.conf") + uscf->host.len + 1);
+        ngx_sprintf(buf, "/tmp/upstream_%V.conf", &uscf->host);
 
-        duscf->upstream_conf_path.data = buf;
-        duscf->upstream_conf_path.len = ngx_strlen("/usr/local/nginx/conf/upstreams/upstream_.conf")
-                                        + uscf->host.len;
+        upscf->upstream_conf_path.data = buf;
+        upscf->upstream_conf_path.len = ngx_strlen("/tmp/upstream_.conf")
+                                      + uscf->host.len;
     }
 
-    duscf->conf_file = ngx_conf_open_file(cf->cycle, &duscf->upstream_conf_path); 
-    if (duscf->conf_file == NULL) {
+    upscf->conf_file = ngx_conf_open_file(cf->cycle, &upscf->upstream_conf_path); 
+    if (upscf->conf_file == NULL) {
         return NGX_CONF_ERROR; 
     }
 
-    conf_server->index = 0;
+    upsync_server->index = 0;
 
-    conf_server->conf = duscf;
-    conf_server->uscf = uscf;
+    upsync_server->upscf = upscf;
+    upsync_server->uscf = uscf;
 
-    conf_server->host.len = uscf->host.len;
-    conf_server->host.data = uscf->host.data;
+    upsync_server->host.len = uscf->host.len;
+    upsync_server->host.data = uscf->host.data;
 
     return NGX_CONF_OK;
 }
 
 
 static ngx_int_t 
-ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle)
+ngx_http_upsync_init_module(ngx_cycle_t *cycle)
 {
-    ngx_uint_t                                        i;
-    ngx_http_dynamic_update_upstream_server_t        *conf_server;
-    ngx_http_dynamic_update_upstream_srv_conf_t      *duscf;
+    ngx_uint_t                       i;
+    ngx_http_upsync_server_t        *upsync_server;
+    ngx_http_upsync_srv_conf_t      *upscf;
 
-    conf_server = dynamic_upstream_ctx->conf_server;
+    upsync_server = upsync_ctx->upsync_server;
 
-    if (ngx_http_dynamic_update_upstream_init_shm_mutex(cycle) != NGX_OK) {
-        ngx_log_error(NGX_LOG_ERR, cycle->log, 0, "dynamic_update_upstream_init_module:"
-                " init shm mutex failed");
-
+    if (ngx_http_upsync_init_shm_mutex(cycle) != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, cycle->log, 0, "upsync_init_module:"
+                      " init shm mutex failed");
         return NGX_ERROR;
     }
 
-    for (i = 0; i < dynamic_upstream_ctx->upstream_num; i++) {
+    for (i = 0; i < upsync_ctx->upstream_num; i++) {
 
-        duscf = conf_server[i].conf;
-        if (duscf->conf_file->fd != NGX_INVALID_FILE) {
-            ngx_close_file(duscf->conf_file->fd);
-            duscf->conf_file->fd = NGX_INVALID_FILE;
+        upscf = upsync_server[i].upscf;
+        if (upscf->conf_file->fd != NGX_INVALID_FILE) {
+            ngx_close_file(upscf->conf_file->fd);
+            upscf->conf_file->fd = NGX_INVALID_FILE;
         }
-        ngx_change_file_access(duscf->upstream_conf_path.data, 
+        ngx_change_file_access(upscf->upstream_conf_path.data, 
                                S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH|S_IWOTH);
     }
 
@@ -1613,44 +1599,48 @@ ngx_http_dynamic_update_upstream_init_module(ngx_cycle_t *cycle)
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_init_shm_mutex(ngx_cycle_t *cycle)
+ngx_http_upsync_init_shm_mutex(ngx_cycle_t *cycle)
 {
-    u_char                                           *shared, *file;
-    size_t                                            size, cl;
-    ngx_shm_t                                         shm;
-    ngx_uint_t                                        i;
-    ngx_http_dynamic_update_upstream_server_t        *conf_server;
+    u_char                                *shared, *file;
+    size_t                                 size, cl;
+    ngx_shm_t                              shm;
+    ngx_uint_t                             i;
+    ngx_http_upsync_server_t              *upsync_server;
 
-    conf_server = dynamic_upstream_ctx->conf_server;
+    upsync_server = upsync_ctx->upsync_server;
 
-    if (*dynamic_shared_created) {
-        shm.size = 128 * (*dynamic_shared_created);
+    if (*upsync_shared_created) {
+        shm.size = 128 * (*upsync_shared_created);
         shm.log = cycle->log;
-        shm.addr = (u_char *)(dynamic_shared_created);
-        shm.name.len = sizeof("ngx_dynamic_update_upstream_shared_zone");
-        shm.name.data = (u_char *)"ngx_dynamic_update_upstream_shared_zone";
+        shm.addr = (u_char *)(upsync_shared_created);
+        shm.name.len = sizeof("ngx_upsync_shared_zone");
+        shm.name.data = (u_char *)"ngx_upsync_shared_zone";
 
         ngx_shm_free(&shm);
     }
 
-    /* cl should be equal to or greater than cache line size */
+    /* cl should be equal to or greater than cache line size 
+       shared created flag
+       upsync_accept_mutex for every upstream 
+    */
+
     cl = 128;
-    size = cl                                                 /*shared created flag*/
-         + cl * dynamic_upstream_ctx->upstream_num;           /*dynamic_accept_mutex for every upstream*/
+    size = cl                                       
+         + cl * upsync_ctx->upstream_num;
 
     shm.size = size;
     shm.log = cycle->log;
-    shm.name.len = sizeof("ngx_dynamic_update_upstream_shared_zone");
-    shm.name.data = (u_char *)"ngx_dynamic_update_upstream_shared_zone";
+    shm.name.len = sizeof("ngx_upsync_shared_zone");
+    shm.name.data = (u_char *)"ngx_upsync_shared_zone";
 
     if (ngx_shm_alloc(&shm) != NGX_OK) {
         return NGX_ERROR;
     }
     shared = shm.addr;
 
-    dynamic_shared_created = (ngx_atomic_t *)shared;
+    upsync_shared_created = (ngx_atomic_t *)shared;
 
-    for (i = 0; i < dynamic_upstream_ctx->upstream_num; i++) {
+    for (i = 0; i < upsync_ctx->upstream_num; i++) {
 
 #if (NGX_HAVE_ATOMIC_OPS)
 
@@ -1658,58 +1648,61 @@ ngx_http_dynamic_update_upstream_init_shm_mutex(ngx_cycle_t *cycle)
 
 #else
 
-        file = ngx_pcalloc(cycle->pool, cycle->lock_file.len + ngx_strlen("dynamic") + 3);
+        file = ngx_pcalloc(cycle->pool, 
+                           cycle->lock_file.len + ngx_strlen("upsync") + 3);
         if (file == NULL) {
             return NGX_ERROR;
         }
 
-        (void) ngx_sprintf(file, "%V%s%d%Z", &ngx_cycle->lock_file, "dynamic", i);
+        (void) ngx_sprintf(file, "%V%s%d%Z", &ngx_cycle->lock_file, "upsync", i);
 
 #endif
 
-        if (ngx_shmtx_create(&conf_server[i].dynamic_accept_mutex, 
-                    (ngx_shmtx_sh_t *)(shared + (i + 1) * cl), file) != NGX_OK) {
+        if (ngx_shmtx_create(&upsync_server[i].upsync_accept_mutex, 
+                             (ngx_shmtx_sh_t *)(shared + (i + 1) * cl), file) 
+                != NGX_OK) 
+        {
             return NGX_ERROR;
         }
     }
 
-    ngx_atomic_cmp_set(dynamic_shared_created, *dynamic_shared_created, 
-            dynamic_upstream_ctx->upstream_num);
+    ngx_atomic_cmp_set(upsync_shared_created, *upsync_shared_created, 
+                       upsync_ctx->upstream_num);
 
     return NGX_OK;
 }
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
+ngx_http_upsync_init_process(ngx_cycle_t *cycle)
 {
-    char                                         *conf_value = NULL;
-    ngx_int_t                                     status;
-    ngx_uint_t                                    i, j;
-    ngx_pool_t                                   *pool;
-    ngx_http_dynamic_update_upstream_ctx_t       *ctx;
-    ngx_http_dynamic_update_upstream_server_t    *conf_server;
+    char                                *conf_value = NULL;
+    ngx_int_t                            status;
+    ngx_uint_t                           i, j;
+    ngx_pool_t                          *pool;
+    ngx_http_upsync_ctx_t               *ctx;
+    ngx_http_upsync_server_t            *upsync_server;
 
-    conf_server = dynamic_upstream_ctx->conf_server;
+    upsync_server = upsync_ctx->upsync_server;
 
-    for (i = 0; i < dynamic_upstream_ctx->upstream_num; i++) {
+    for (i = 0; i < upsync_ctx->upstream_num; i++) {
 
-        ctx = &conf_server[i].ctx;
+        ctx = &upsync_server[i].ctx;
         ngx_memzero(ctx, sizeof(*ctx));
 
-        ngx_http_dynamic_update_upstream_init_peers(cycle, &conf_server[i]);
+        ngx_http_upsync_init_peers(cycle, &upsync_server[i]);
 
         pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, ngx_cycle->log);
         if (pool == NULL) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "dynamic_update_upstream_init_process: recv no enough memory");
+                          "upsync_init_process: recv no enough memory");
             return NGX_ERROR;
         }
         ctx->pool = pool;
 
         for (j = 0; j < NGX_HTTP_RETRY_TIMES; j++) {
-            status = ngx_http_dynamic_update_upstream_get_upstream(cycle, 
-                    &conf_server[i], &conf_value);
+            status = ngx_http_upsync_get_upstream(cycle, 
+                                                 &upsync_server[i], &conf_value);
             if (status == NGX_OK) {
                 break;
             }
@@ -1717,15 +1710,14 @@ ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
 
         if (status != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                    "dynamic_update_upstream_init_process: pull upstream conf failed");
+                          "upsync_init_process: pull upstream conf failed");
 
-            if (conf_server[i].conf->strong_dependency == 0) {
+            if (upsync_server[i].upscf->strong_dependency == 0) {
                 ngx_destroy_pool(pool);
                 ctx->pool = NULL;
 
                 continue;
             }
-
             return NGX_ERROR;
         }
 
@@ -1751,7 +1743,7 @@ ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
             continue;
         }
 
-        ngx_http_dynamic_update_upstream_process(&conf_server[i]);
+        ngx_http_upsync_process(&upsync_server[i]);
 
         ngx_free(conf_value);
         conf_value = NULL;
@@ -1760,28 +1752,28 @@ ngx_http_dynamic_update_upstream_init_process(ngx_cycle_t *cycle)
         ctx->pool = NULL;
     }
 
-    ngx_http_dynamic_update_upstream_add_timers(cycle);
+    ngx_http_upsync_add_timers(cycle);
 
     return NGX_OK;
 }
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_init_peers(ngx_cycle_t *cycle,
-        ngx_http_dynamic_update_upstream_server_t *conf_server)
+ngx_http_upsync_init_peers(ngx_cycle_t *cycle,
+    ngx_http_upsync_server_t *upsync_server)
 {
     ngx_uint_t                          i, n, len;
-    ngx_http_upstream_rr_peers_t       *peers=NULL, *tmp_peers=NULL;
+    ngx_http_upstream_rr_peers_t       *peers = NULL, *tmp_peers = NULL;
     ngx_http_upstream_srv_conf_t       *uscf;
 
-    uscf = conf_server->uscf;
+    uscf = upsync_server->uscf;
 
     u_char *namep = NULL;
     struct sockaddr *saddr = NULL;
     len = sizeof(struct sockaddr);
 
-    ngx_queue_init(&conf_server->add_ev);
-    ngx_queue_init(&conf_server->delete_ev);
+    ngx_queue_init(&upsync_server->add_ev);
+    ngx_queue_init(&upsync_server->delete_ev);
 
     if (uscf->peer.data != NULL) {
         tmp_peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
@@ -1791,8 +1783,8 @@ ngx_http_dynamic_update_upstream_init_peers(ngx_cycle_t *cycle,
         n = tmp_peers->number;
 
         peers = ngx_calloc(sizeof(ngx_http_upstream_rr_peers_t)
-                + sizeof(ngx_http_upstream_rr_peer_t) * (n - 1), cycle->log);
-
+                           + sizeof(ngx_http_upstream_rr_peer_t) * (n - 1), 
+                           cycle->log);
         if (peers == NULL) {
             goto invalid;
         }
@@ -1804,7 +1796,6 @@ ngx_http_dynamic_update_upstream_init_peers(ngx_cycle_t *cycle,
         peers->name = tmp_peers->name;
 
         n = 0;
-
         for (i = 0; i < tmp_peers->number; i++) {
 
             if ((saddr = ngx_calloc(len, cycle->log)) == NULL) {
@@ -1846,10 +1837,10 @@ ngx_http_dynamic_update_upstream_init_peers(ngx_cycle_t *cycle,
 
 invalid:
     ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-            "dynamic_update_upstream_init_peers: copy failed \"%V\"", &uscf->host);
+                  "upsync_init_peers: copy failed \"%V\"", &uscf->host);
 
     if (peers != NULL) {
-        ngx_http_dynamic_update_upstream_free(peers);
+        ngx_http_upsync_free(peers);
     }
     uscf->peer.data = tmp_peers;
 
@@ -1858,47 +1849,47 @@ invalid:
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle)
+ngx_http_upsync_add_timers(ngx_cycle_t *cycle)
 {
     ngx_msec_t                                   t, tmp;
     ngx_uint_t                                   i;
-    ngx_http_dynamic_update_upstream_server_t   *peer;
-    ngx_http_dynamic_update_upstream_srv_conf_t *conf;
+    ngx_http_upsync_server_t                    *upsync_server;
+    ngx_http_upsync_srv_conf_t                  *upscf;
 
-    peer = dynamic_upstream_ctx->conf_server;
-    if (peer == NULL) {
+    upsync_server = upsync_ctx->upsync_server;
+    if (upsync_server == NULL) {
         return NGX_OK;
     }
-    conf = peer->conf;
+    upscf = upsync_server->upscf;
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, cycle->log, 0,
-            "dynamic_update_upstream_add_timers: shm_name: %V", peer->pc.name);
+                   "upsync_add_timers: shm_name: %V", upsync_server->pc.name);
 
     srandom(ngx_pid);
-    for (i = 0; i < dynamic_upstream_ctx->upstream_num; i++) {
+    for (i = 0; i < upsync_ctx->upstream_num; i++) {
 
-        peer[i].update_ev.handler = ngx_http_dynamic_update_upstream_begin_handler;
-        peer[i].update_ev.log = cycle->log;
-        peer[i].update_ev.data = &peer[i];
-        peer[i].update_ev.timer_set = 0;
+        upsync_server[i].update_ev.handler = ngx_http_upsync_begin_handler;
+        upsync_server[i].update_ev.log = cycle->log;
+        upsync_server[i].update_ev.data = &upsync_server[i];
+        upsync_server[i].update_ev.timer_set = 0;
 
-        peer[i].update_timeout_ev.handler =
-            ngx_http_dynamic_update_upstream_timeout_handler;
-        peer[i].update_timeout_ev.log = cycle->log;
-        peer[i].update_timeout_ev.data = &peer[i];
-        peer[i].update_timeout_ev.timer_set = 0;
+        upsync_server[i].update_timeout_ev.handler =
+            ngx_http_upsync_timeout_handler;
+        upsync_server[i].update_timeout_ev.log = cycle->log;
+        upsync_server[i].update_timeout_ev.data = &upsync_server[i];
+        upsync_server[i].update_timeout_ev.timer_set = 0;
 
-        peer[i].send_handler = ngx_http_dynamic_update_upstream_send_handler;
-        peer[i].recv_handler = ngx_http_dynamic_update_upstream_recv_handler;
+        upsync_server[i].send_handler = ngx_http_upsync_send_handler;
+        upsync_server[i].recv_handler = ngx_http_upsync_recv_handler;
 
         /*
          * We add a random start time here, since we don't want to trigger
          * the check events too close to each other at the beginning.
          */
-        tmp = conf->update_interval;
+        tmp = upscf->update_interval;
         t = ngx_random() % 1000 + tmp;
 
-        ngx_add_timer(&peer[i].update_ev, t);
+        ngx_add_timer(&upsync_server[i].update_ev, t);
     }
 
     return NGX_OK;
@@ -1906,23 +1897,23 @@ ngx_http_dynamic_update_upstream_add_timers(ngx_cycle_t *cycle)
 
 
 static void
-ngx_http_dynamic_update_upstream_begin_handler(ngx_event_t *event)
+ngx_http_upsync_begin_handler(ngx_event_t *event)
 {
-    ngx_http_dynamic_update_upstream_ctx_t     *ctx;
-    ngx_http_dynamic_update_upstream_server_t  *peer;
+    ngx_http_upsync_ctx_t          *ctx;
+    ngx_http_upsync_server_t       *upsync_server;
 
-    if (ngx_http_dynamic_update_upstream_need_exit()) {
+    if (ngx_http_upsync_need_exit()) {
         return;
     }
 
-    peer = event->data;
-    if (peer == NULL) {
+    upsync_server = event->data;
+    if (upsync_server == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "ngx_http_dynamic_update_upstream_begin_handler: peer is null");
+                      "ngx_http_upsync_begin_handler: upsync_server is null");
         return;
     }
 
-    ctx = &peer->ctx;
+    ctx = &upsync_server->ctx;
     if (ctx->pool != NULL) {
         ngx_destroy_pool(ctx->pool);
     }
@@ -1935,53 +1926,52 @@ ngx_http_dynamic_update_upstream_begin_handler(ngx_event_t *event)
     }
     parser = NULL;
 
-    if (peer->update_ev.timer_set) {
-        ngx_del_timer(&peer->update_ev);
+    if (upsync_server->update_ev.timer_set) {
+        ngx_del_timer(&upsync_server->update_ev);
     }
 
-    ngx_http_dynamic_update_upstream_connect_handler(event);
+    ngx_http_upsync_connect_handler(event);
 }
 
 
 static void
-ngx_http_dynamic_update_upstream_connect_handler(ngx_event_t *event)
+ngx_http_upsync_connect_handler(ngx_event_t *event)
 {
-    ngx_int_t                                    rc;
-    ngx_connection_t                            *c;
-    ngx_http_dynamic_update_upstream_server_t   *peer;
-    ngx_http_dynamic_update_upstream_srv_conf_t *conf;
+    ngx_int_t                                 rc;
+    ngx_connection_t                         *c;
+    ngx_http_upsync_server_t                 *upsync_server;
+    ngx_http_upsync_srv_conf_t               *upscf;
 
-    if (ngx_http_dynamic_update_upstream_need_exit()) {
+    if (ngx_http_upsync_need_exit()) {
         return;
     }
 
-    if (ngx_http_dynamic_update_upstream_init_consul(event) != NGX_OK) {
+    if (ngx_http_upsync_init_consul(event) != NGX_OK) {
         return;
     }
 
-    peer = event->data;
-    conf = peer->conf;
-    ngx_add_timer(&peer->update_timeout_ev, conf->update_timeout);
+    upsync_server = event->data;
+    upscf = upsync_server->upscf;
+    ngx_add_timer(&upsync_server->update_timeout_ev, upscf->update_timeout);
 
-    rc = ngx_event_connect_peer(&peer->pc);
-
+    rc = ngx_event_connect_peer(&upsync_server->pc);
     if (rc == NGX_ERROR || rc == NGX_DECLINED) {
         ngx_log_error(NGX_LOG_ERR, event->log, 0,
-                "dynamic_update_upstream_connect_handler: cant connect with peer: %V ",
-                peer->pc.name);
+                      "upsync_connect_handler: cant connect upsync_server: %V ",
+                      upsync_server->pc.name);
         return;
     }
 
     /* NGX_OK or NGX_AGAIN */
-    c = peer->pc.connection;
-    c->data = peer;
-    c->log = peer->pc.log;
+    c = upsync_server->pc.connection;
+    c->data = upsync_server;
+    c->log = upsync_server->pc.log;
     c->sendfile = 0;
     c->read->log = c->log;
     c->write->log = c->log;
 
-    c->write->handler = peer->send_handler;
-    c->read->handler = peer->recv_handler;
+    c->write->handler = upsync_server->send_handler;
+    c->read->handler = upsync_server->recv_handler;
 
     /* The kqueue's loop interface needs it. */
     if (rc == NGX_OK) {
@@ -1991,37 +1981,35 @@ ngx_http_dynamic_update_upstream_connect_handler(ngx_event_t *event)
 
 
 static void
-ngx_http_dynamic_update_upstream_send_handler(ngx_event_t *event)
+ngx_http_upsync_send_handler(ngx_event_t *event)
 {
-    ssize_t                                       size;
-    ngx_connection_t                             *c;
-    ngx_http_dynamic_update_upstream_ctx_t       *ctx;
-    ngx_http_dynamic_update_upstream_server_t    *peer;
-    ngx_http_dynamic_update_upstream_srv_conf_t  *conf;
+    ssize_t                                   size;
+    ngx_connection_t                         *c;
+    ngx_http_upsync_ctx_t                    *ctx;
+    ngx_http_upsync_server_t                 *upsync_server;
+    ngx_http_upsync_srv_conf_t               *upscf;
 
-    if (ngx_http_dynamic_update_upstream_need_exit()) {
+    if (ngx_http_upsync_need_exit()) {
         return;
     }
 
     c = event->data;
-    peer = c->data;
+    upsync_server = c->data;
+    upscf = upsync_server->upscf;
 
-    conf = peer->conf;
+    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, c->log, 0, "upsync_send");
 
-    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, c->log, 0, "dynamic_update_upstream_send");
-
-    ctx = &peer->ctx;
+    ctx = &upsync_server->ctx;
 
     u_char request[ngx_pagesize];
     ngx_memzero(request, ngx_pagesize);
-    ngx_sprintf(request, "GET %V?recurse&index=%d HTTP/1.0\r\nHost: %V\r\nAccept: */*\r\n\r\n", 
-            &conf->update_send, peer->index, &conf->us.name);
+    ngx_sprintf(request, "GET %V?recurse&index=%d HTTP/1.0\r\nHost: %V\r\n"
+                "Accept: */*\r\n\r\n", 
+                &upscf->update_send, upsync_server->index, &upscf->consul.name);
 
     ctx->send.pos = request;
     ctx->send.last = ctx->send.pos + ngx_strlen(request);
-
     while (ctx->send.pos < ctx->send.last) {
-
         size = c->send(c, ctx->send.pos, ctx->send.last - ctx->send.pos);
 
 #if (NGX_DEBUG)
@@ -2030,8 +2018,8 @@ ngx_http_dynamic_update_upstream_send_handler(ngx_event_t *event)
 
             err = (size >=0) ? 0 : ngx_socket_errno;
             ngx_log_debug2(NGX_LOG_DEBUG_HTTP, c->log, err,
-                    "dynamic_update_upstream_send: send size: %z, total: %z",
-                    size, ctx->send.last - ctx->send.pos);
+                           "upsync_send: send size: %z, total: %z",
+                           size, ctx->send.last - ctx->send.pos);
         }
 #endif
 
@@ -2049,48 +2037,47 @@ ngx_http_dynamic_update_upstream_send_handler(ngx_event_t *event)
 
     if (ctx->send.pos == ctx->send.last) {
         ngx_log_debug0(NGX_LOG_DEBUG_HTTP, c->log, 0, 
-                "dynamic_update_upstream_send: send done.");
+                       "upsync_send: send done.");
     }
 
     return;
 
 update_send_fail:
     ngx_log_error(NGX_LOG_ERR, event->log, 0,
-            "dynamic_update_upstream_send: send error with peer: %V", peer->pc.name);
+                  "upsync_send: send error with upsync_server: %V", 
+                  upsync_server->pc.name);
 
-    ngx_http_dynamic_update_upstream_clean_event(peer);
+    ngx_http_upsync_clean_event(upsync_server);
 }
 
 
 static void
-ngx_http_dynamic_update_upstream_recv_handler(ngx_event_t *event)
+ngx_http_upsync_recv_handler(ngx_event_t *event)
 {
-    u_char                                    *new_buf;
-    ssize_t                                    size, n;
-    ngx_pool_t                                *pool;
-    ngx_connection_t                          *c;
-    ngx_http_dynamic_update_upstream_ctx_t    *ctx;
-    ngx_http_dynamic_update_upstream_server_t *peer;
+    u_char                                *new_buf;
+    ssize_t                                size, n;
+    ngx_pool_t                            *pool;
+    ngx_connection_t                      *c;
+    ngx_http_upsync_ctx_t                 *ctx;
+    ngx_http_upsync_server_t              *upsync_server;
 
-    if (ngx_http_dynamic_update_upstream_need_exit()) {
+    if (ngx_http_upsync_need_exit()) {
         return;
     }
 
     c = event->data;
-    peer = c->data;
-
-    ctx = &peer->ctx;
+    upsync_server = c->data;
+    ctx = &upsync_server->ctx;
 
     if (ctx->pool == NULL) {
         pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, ngx_cycle->log);
-
         if (pool == NULL) {
             ngx_log_error(NGX_LOG_ERR, event->log, 0, 
-                    "dynamic_update_upstream_recv: recv no enough memory");
+                          "upsync_recv: recv no enough memory");
             return;
         }
-
         ctx->pool = pool;
+
     } else {
         pool = ctx->pool;
     }
@@ -2116,7 +2103,6 @@ ngx_http_dynamic_update_upstream_recv_handler(ngx_event_t *event)
             if (new_buf == NULL) {
                 goto update_recv_fail;
             }
-
             ngx_memcpy(new_buf, ctx->recv.start, size);
 
             ctx->recv.pos = ctx->recv.start = new_buf;
@@ -2134,8 +2120,8 @@ ngx_http_dynamic_update_upstream_recv_handler(ngx_event_t *event)
 
             err = (size >= 0) ? 0 : ngx_socket_errno;
             ngx_log_debug2(NGX_LOG_DEBUG, c->log, err,
-                    "dynamic_update_upstream_recv: recv size: %z, peer: %V ",
-                    size, peer->pc.name);
+                           "upsync_recv: recv size: %z, upsync_server: %V ",
+                           size, upsync_server->pc.name);
         }
 #endif
 
@@ -2159,193 +2145,206 @@ ngx_http_dynamic_update_upstream_recv_handler(ngx_event_t *event)
         }
 
         ngx_http_parser_execute(ctx);
-
         if (ctx->body.pos != ctx->body.last) {
             *(ctx->body.last + 1) = '\0';
 
-            ngx_http_dynamic_update_upstream_process(peer);
+            ngx_http_upsync_process(upsync_server);
         }
     }
 
-    ngx_http_dynamic_update_upstream_clean_event(peer);
+    ngx_http_upsync_clean_event(upsync_server);
 
     return;
 
 update_recv_fail:
     ngx_log_error(NGX_LOG_ERR, event->log, 0,
-            "dynamic_update_upstream_recv: recv error with peer: %V", peer->pc.name);
+                  "upsync_recv: recv error with upsync_server: %V", 
+                  upsync_server->pc.name);
 
-    ngx_http_dynamic_update_upstream_clean_event(peer);
+    ngx_http_upsync_clean_event(upsync_server);
 }
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_dump_conf(ngx_http_dynamic_update_upstream_server_t *conf_server)
+ngx_http_upsync_dump_conf(ngx_http_upsync_server_t *upsync_server)
 {
     ngx_buf_t                                       *b=NULL;
     ngx_uint_t                                       i;
-    ngx_http_upstream_rr_peers_t                    *peers=NULL;
-    ngx_http_upstream_srv_conf_t                    *uscf=NULL;
-    ngx_http_dynamic_update_upstream_srv_conf_t     *duscf=NULL;
+    ngx_http_upsync_srv_conf_t                      *upscf = NULL;
+    ngx_http_upstream_rr_peers_t                    *peers = NULL;
+    ngx_http_upstream_srv_conf_t                    *uscf = NULL;
 
 #if (NGX_HTTP_UPSTREAM_CHECK)
-    u_char                                          *escaped_send=NULL;
-    ngx_http_upstream_check_srv_conf_t              *ucscf=NULL;
+    u_char                                          *escaped_send = NULL;
+    ngx_http_upstream_check_srv_conf_t              *ucscf = NULL;
 #endif
 
-    uscf = conf_server->uscf;
-
+    uscf = upsync_server->uscf;
     if (uscf->peer.data != NULL) {
         peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
 
     } else {
-        ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
-                "dynamic_update_upstream_dump_conf: no peers");
-
+        ngx_log_error(NGX_LOG_ERR, upsync_server->ctx.pool->log, 0,
+                      "upsync_dump_conf: no peers");
         return NGX_ERROR;
     }
 
     if (peers->number == 0) {
-        ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
-                "dynamic_update_upstream_dump_conf: peers number is zero");
-
+        ngx_log_error(NGX_LOG_ERR, upsync_server->ctx.pool->log, 0,
+                      "upsync_dump_conf: peers number is zero");
         return NGX_ERROR;
     }
 
-    b = ngx_create_temp_buf(conf_server->ctx.pool, NGX_PAGE_SIZE * NGX_PAGE_NUMBER);
+    b = ngx_create_temp_buf(upsync_server->ctx.pool, 
+                            NGX_PAGE_SIZE * NGX_PAGE_NUMBER);
     if (b == NULL) {
-        ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
-                "dynamic_update_upstream_dump_conf: dump failed %V", &uscf->host);
-
+        ngx_log_error(NGX_LOG_ERR, upsync_server->ctx.pool->log, 0,
+                      "upsync_dump_conf: dump failed %V", &uscf->host);
         return NGX_ERROR;
     }
 
-    b->last = ngx_snprintf(b->last,b->end - b->last, "upstream %V {\n", &uscf->host);
-    b->last = ngx_snprintf(b->last,b->end - b->last, "\tkeepalive %d;\n", peers->number);
-    b->last = ngx_snprintf(b->last,b->end - b->last, "\n\tconsul %V:%d%V update_interval=%dms update_timeout=%dms;\n", 
-                                                                   &conf_server->conf->consul_host,
-                                                                    conf_server->conf->consul_port,
-                                                                   &conf_server->conf->update_send,
-                                                                    conf_server->conf->update_interval,
-                                                                    conf_server->conf->update_timeout);
-    b->last = ngx_snprintf(b->last,b->end - b->last, "\tupstream_conf_path %V;\n\n", 
-                                                                   &conf_server->conf->upstream_conf_path);
+    b->last = ngx_snprintf(b->last,b->end - b->last, 
+                           "upstream %V {\n", &uscf->host);
+    b->last = ngx_snprintf(b->last,b->end - b->last, 
+                           "\tkeepalive %d;\n", peers->number);
+    b->last = ngx_snprintf(b->last,b->end - b->last, 
+                           "\n\tconsul %V:%d%V update_interval=%dms"
+                           " update_timeout=%dms;\n", 
+                           &upsync_server->upscf->consul_host,
+                           upsync_server->upscf->consul_port,
+                           &upsync_server->upscf->update_send,
+                           upsync_server->upscf->update_interval,
+                           upsync_server->upscf->update_timeout);
+    b->last = ngx_snprintf(b->last,b->end - b->last, 
+                           "\tupstream_conf_path %V;\n\n", 
+                           &upsync_server->upscf->upstream_conf_path);
 
     for (i = 0; i < peers->number; i++) {
-        b->last = ngx_snprintf(b->last,b->end - b->last, "\tserver %V", &peers->peer[i].name);
-        b->last = ngx_snprintf(b->last,b->end - b->last, " weight=%d", peers->peer[i].weight);
-        b->last = ngx_snprintf(b->last,b->end - b->last, " max_fails=%d", peers->peer[i].max_fails);
-        b->last = ngx_snprintf(b->last,b->end - b->last, " fail_timeout=%ds;\n", peers->peer[i].fail_timeout);
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               "\tserver %V", &peers->peer[i].name);
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               " weight=%d", peers->peer[i].weight);
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               " max_fails=%d", peers->peer[i].max_fails);
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               " fail_timeout=%ds;\n", peers->peer[i].fail_timeout);
     }
 
 #if (NGX_HTTP_UPSTREAM_CHECK)
     ucscf = ngx_http_conf_upstream_srv_conf(uscf, ngx_http_upstream_check_module);
     if (ucscf != NULL && ucscf->check_type_conf != NULL) {
-        escaped_send = ngx_pcalloc(conf_server->ctx.pool, ucscf->send.len * 2);
+
+        escaped_send = ngx_pcalloc(upsync_server->ctx.pool, ucscf->send.len * 2);
         ngx_print_escape(escaped_send, ucscf->send.data, ucscf->send.len);
 
-        b->last = ngx_snprintf(b->last,b->end - b->last, "\n\tcheck interval=%d rise=%d fall=%d timeout=%d type=%V"
-                                                     " default_down=%s;\n", ucscf->check_interval, ucscf->rise_count,
-                                                     ucscf->fall_count, ucscf->check_timeout, &ucscf->check_type_conf->name,
-                                                     ucscf->default_down ? "true":"false");
-        b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_keepalive_requests %d;\n", ucscf->check_keepalive_requests);
-        b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_http_send \"%s\";\n", escaped_send);
-        b->last = ngx_snprintf(b->last,b->end - b->last, "\tcheck_http_expect_alive http_2xx http_3xx;\n");
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               "\n\tcheck interval=%d rise=%d fall=%d "
+                               "timeout=%d type=%V default_down=%s;\n", 
+                               ucscf->check_interval, ucscf->rise_count,
+                               ucscf->fall_count, ucscf->check_timeout, 
+                               &ucscf->check_type_conf->name,
+                               ucscf->default_down ? "true":"false");
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               "\tcheck_keepalive_requests %d;\n", 
+                               ucscf->check_keepalive_requests);
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               "\tcheck_http_send \"%s\";\n", escaped_send);
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               "\tcheck_http_expect_alive http_2xx http_3xx;\n");
     }
 #endif
 
     b->last = ngx_snprintf(b->last,b->end - b->last, "}\n");
 
-    duscf = conf_server->conf;
-    duscf->conf_file->fd = ngx_open_file(duscf->upstream_conf_path.data,
+    upscf = upsync_server->upscf;
+    upscf->conf_file->fd = ngx_open_file(upscf->upstream_conf_path.data,
                                          NGX_FILE_TRUNCATE,
                                          NGX_FILE_WRONLY,
                                          NGX_FILE_DEFAULT_ACCESS);
-    if (duscf->conf_file->fd == NGX_INVALID_FILE) {
-        ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
-                        "dynamic_update_upstream_dump_conf: open dump file \"%V\" failed", 
-                        &duscf->upstream_conf_path);
+    if (upscf->conf_file->fd == NGX_INVALID_FILE) {
+        ngx_log_error(NGX_LOG_ERR, upsync_server->ctx.pool->log, 0,
+                      "upsync_dump_conf: open dump file \"%V\" failed", 
+                      &upscf->upstream_conf_path);
         return NGX_ERROR;
     }
 
-    ngx_lseek(duscf->conf_file->fd, 0, SEEK_SET);
-    if (ngx_write_fd(duscf->conf_file->fd, b->start, b->last - b->start) == NGX_ERROR) {
-        ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
-                "dynamic_update_upstream_dump_conf: write file failed %V", 
-                &duscf->upstream_conf_path);
-        ngx_close_file(duscf->conf_file->fd);
-
+    ngx_lseek(upscf->conf_file->fd, 0, SEEK_SET);
+    if (ngx_write_fd(upscf->conf_file->fd, b->start, b->last - b->start) == NGX_ERROR) {
+        ngx_log_error(NGX_LOG_ERR, upsync_server->ctx.pool->log, 0,
+                      "upsync_dump_conf: write file failed %V", 
+                      &upscf->upstream_conf_path);
+        ngx_close_file(upscf->conf_file->fd);
         return NGX_ERROR;
     }
 
-    if (ngx_ftruncate(duscf->conf_file->fd, b->last - b->start) != NGX_OK) {
-        ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0,
-                "dynamic_update_upstream_dump_conf: truncate file failed %V", 
-                &duscf->upstream_conf_path);
-        ngx_close_file(duscf->conf_file->fd);
-
+    if (ngx_ftruncate(upscf->conf_file->fd, b->last - b->start) != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, upsync_server->ctx.pool->log, 0,
+                      "upsync_dump_conf: truncate file failed %V", 
+                      &upscf->upstream_conf_path);
+        ngx_close_file(upscf->conf_file->fd);
         return NGX_ERROR;
     }
-    ngx_close_file(duscf->conf_file->fd);
-    duscf->conf_file->fd = NGX_INVALID_FILE;
 
-    ngx_log_error(NGX_LOG_ERR, conf_server->ctx.pool->log, 0, "[NOTICE]:"
-                  "dynamic_update_upstream_dump_conf: dump conf file %V succeed, server numbers is %d", 
-                  &duscf->upstream_conf_path, peers->number);
+    ngx_close_file(upscf->conf_file->fd);
+    upscf->conf_file->fd = NGX_INVALID_FILE;
+
+    ngx_log_error(NGX_LOG_ERR, upsync_server->ctx.pool->log, 0, "[NOTICE]:"
+                  "upsync_dump_conf: dump conf file %V succeed, server numbers is %d", 
+                  &upscf->upstream_conf_path, peers->number);
 
     return NGX_OK;
 }
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_init_consul(ngx_event_t *event)
+ngx_http_upsync_init_consul(ngx_event_t *event)
 {
-    ngx_pool_t                                   *pool;
-    ngx_http_upstream_server_t                   *us;
-    ngx_http_dynamic_update_upstream_ctx_t       *ctx;
-    ngx_http_dynamic_update_upstream_server_t    *peer;
-    ngx_http_dynamic_update_upstream_srv_conf_t  *conf;
+    ngx_pool_t                              *pool;
+    ngx_http_upsync_ctx_t                   *ctx;
+    ngx_http_upsync_server_t                *upsync_server;
+    ngx_http_upsync_srv_conf_t              *upscf;
+    ngx_http_upstream_server_t              *consul;
 
     u_char               *p, *host = NULL;
     size_t                len;
     ngx_str_t            *name;
-    struct addrinfo       hints, *res=NULL, *rp=NULL;
+    struct addrinfo       hints, *res = NULL, *rp = NULL;
     struct sockaddr_in   *sin;
 
-    peer = event->data;
-    conf = peer->conf;
-    us = &conf->us;
+    upsync_server = event->data;
+    upscf = upsync_server->upscf;
+    consul = &upscf->consul;
 
-    ctx = &peer->ctx;
+    ctx = &upsync_server->ctx;
     if (ctx->pool == NULL) {
 
         pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, ngx_cycle->log);
         if (pool == NULL) {
             ngx_log_error(NGX_LOG_ERR, event->log, 0, 
-                        "dynamic_update_upstream_init_consul: creat pool, no enough memory");
+                          "upsync_init_consul: creat pool, no enough memory");
             return NGX_ERROR;
         }
         ctx->pool = pool;
     }
 
-    ngx_memzero(&peer->pc, sizeof(ngx_peer_connection_t));
+    ngx_memzero(&upsync_server->pc, sizeof(ngx_peer_connection_t));
 
-    peer->pc.get = ngx_event_get_peer;
-    peer->pc.log = event->log;
-    peer->pc.log_error = NGX_ERROR_ERR;
+    upsync_server->pc.get = ngx_event_get_peer;
+    upsync_server->pc.log = event->log;
+    upsync_server->pc.log_error = NGX_ERROR_ERR;
 
-    peer->pc.cached = 0;
-    peer->pc.connection = NULL;
+    upsync_server->pc.cached = 0;
+    upsync_server->pc.connection = NULL;
 
-    if (ngx_inet_addr(conf->consul_host.data, conf->consul_host.len)
+    if (ngx_inet_addr(upscf->consul_host.data, upscf->consul_host.len)
             == INADDR_NONE) {
 
-        host = ngx_pcalloc(ctx->pool, conf->consul_host.len + 1);
+        host = ngx_pcalloc(ctx->pool, upscf->consul_host.len + 1);
         if (host == NULL) {
             return NGX_ERROR;
         }
 
-        (void) ngx_cpystrn(host, conf->consul_host.data, conf->consul_host.len + 1);
+        (void) ngx_cpystrn(host, upscf->consul_host.data, upscf->consul_host.len + 1);
 
         ngx_memzero(&hints, sizeof(struct addrinfo));
         hints.ai_family = AF_UNSPEC;
@@ -2371,14 +2370,12 @@ ngx_http_dynamic_update_upstream_init_consul(ngx_event_t *event)
             }
 
             ngx_memcpy(sin, rp->ai_addr, rp->ai_addrlen);
+            sin->sin_port = htons((in_port_t) upscf->consul_port);
 
-            sin->sin_port = htons((in_port_t) conf->consul_port);
-
-            peer->pc.sockaddr = (struct sockaddr *) sin;
-            peer->pc.socklen = rp->ai_addrlen;
+            upsync_server->pc.sockaddr = (struct sockaddr *) sin;
+            upsync_server->pc.socklen = rp->ai_addrlen;
 
             len = NGX_INET_ADDRSTRLEN + sizeof(":65535") - 1;
-
             p = ngx_pcalloc(ctx->pool, len);
             if (p == NULL) {
                 goto valid;
@@ -2390,11 +2387,10 @@ ngx_http_dynamic_update_upstream_init_consul(ngx_event_t *event)
             if (name == NULL) {
                 goto valid;
             }
-
             name->len = len;
             name->data = p;
 
-            peer->pc.name = name;
+            upsync_server->pc.name = name;
 
             freeaddrinfo(res);
             return NGX_OK;
@@ -2402,9 +2398,9 @@ ngx_http_dynamic_update_upstream_init_consul(ngx_event_t *event)
     }
 
 valid:
-    peer->pc.sockaddr = us->addrs[0].sockaddr;
-    peer->pc.socklen = us->addrs[0].socklen;
-    peer->pc.name = &us->addrs[0].name;
+    upsync_server->pc.sockaddr = consul->addrs[0].sockaddr;
+    upsync_server->pc.socklen = consul->addrs[0].socklen;
+    upsync_server->pc.name = &consul->addrs[0].name;
 
     if (res != NULL) {
         freeaddrinfo(res);
@@ -2415,8 +2411,8 @@ valid:
 
 
 static void
-ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_peers, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server, ngx_flag_t flag)
+ngx_http_upsync_event_init(ngx_http_upstream_rr_peers_t *tmp_peers, 
+    ngx_http_upsync_server_t *upsync_server, ngx_flag_t flag)
 {
     ngx_time_t                                  *tp;
     ngx_delay_event_t                           *delay_event;
@@ -2424,7 +2420,7 @@ ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_pe
     delay_event = ngx_calloc(sizeof(*delay_event), ngx_cycle->log);
     if (delay_event == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "dynamic_update_upstream_event_init: calloc failed");
+                      "upsync_event_init: calloc failed");
         return;
     }
 
@@ -2433,20 +2429,20 @@ ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_pe
     delay_event->start_msec = tp->msec;
 
     if (flag == NGX_ADD) {
-        delay_event->delay_delete_ev.handler = ngx_http_dynamic_update_upstream_add_delay_delete;
+        delay_event->delay_delete_ev.handler = ngx_http_upsync_add_delay_delete;
         delay_event->delay_delete_ev.log = ngx_cycle->log;
         delay_event->delay_delete_ev.data = delay_event;
         delay_event->delay_delete_ev.timer_set = 0;
 
-        ngx_queue_insert_head(&conf_server->add_ev, &delay_event->queue);
+        ngx_queue_insert_head(&upsync_server->add_ev, &delay_event->queue);
     } else {
 
-        delay_event->delay_delete_ev.handler = ngx_http_dynamic_update_upstream_del_delay_delete;
+        delay_event->delay_delete_ev.handler = ngx_http_upsync_del_delay_delete;
         delay_event->delay_delete_ev.log = ngx_cycle->log;
         delay_event->delay_delete_ev.data = delay_event;
         delay_event->delay_delete_ev.timer_set = 0;
 
-        ngx_queue_insert_head(&conf_server->delete_ev, &delay_event->queue);
+        ngx_queue_insert_head(&upsync_server->delete_ev, &delay_event->queue);
     }
 
     delay_event->data = tmp_peers;
@@ -2457,14 +2453,14 @@ ngx_http_dynamic_update_upstream_event_init(ngx_http_upstream_rr_peers_t *tmp_pe
 
 
 static void
-ngx_http_dynamic_update_upstream_add_delay_delete(ngx_event_t *event)
+ngx_http_upsync_add_delay_delete(ngx_event_t *event)
 {
-    ngx_uint_t                     i;
-    ngx_connection_t              *c;
-    ngx_delay_event_t             *delay_event;
-    ngx_http_request_t            *r=NULL;
-    ngx_http_log_ctx_t            *ctx=NULL;
-    ngx_http_upstream_rr_peers_t  *tmp_peers=NULL;
+    ngx_uint_t                       i;
+    ngx_connection_t                *c;
+    ngx_delay_event_t               *delay_event;
+    ngx_http_request_t              *r = NULL;
+    ngx_http_log_ctx_t              *ctx = NULL;
+    ngx_http_upstream_rr_peers_t    *tmp_peers = NULL;
 
     delay_event = event->data;
     if (delay_event == NULL) {
@@ -2502,7 +2498,6 @@ ngx_http_dynamic_update_upstream_add_delay_delete(ngx_event_t *event)
     }
 
     if (tmp_peers != NULL) {
-
         ngx_free(tmp_peers);
         tmp_peers = NULL;
     }
@@ -2517,14 +2512,14 @@ ngx_http_dynamic_update_upstream_add_delay_delete(ngx_event_t *event)
 
 
 static void
-ngx_http_dynamic_update_upstream_del_delay_delete(ngx_event_t *event)
+ngx_http_upsync_del_delay_delete(ngx_event_t *event)
 {
-    ngx_uint_t                     i;
-    ngx_connection_t              *c;
-    ngx_delay_event_t             *delay_event;
-    ngx_http_request_t            *r=NULL;
-    ngx_http_log_ctx_t            *ctx=NULL;
-    ngx_http_upstream_rr_peers_t  *tmp_peers=NULL;
+    ngx_uint_t                       i;
+    ngx_connection_t                *c;
+    ngx_delay_event_t               *delay_event;
+    ngx_http_request_t              *r = NULL;
+    ngx_http_log_ctx_t              *ctx = NULL;
+    ngx_http_upstream_rr_peers_t    *tmp_peers = NULL;
 
     u_char *namep = NULL;
     struct sockaddr *saddr = NULL;
@@ -2601,7 +2596,7 @@ ngx_http_dynamic_update_upstream_del_delay_delete(ngx_event_t *event)
 }
 
 
-u_char *
+static u_char *
 ngx_print_escape(u_char *dst, u_char *src, size_t len)
 {
     u_char    ch;
@@ -2635,38 +2630,39 @@ ngx_print_escape(u_char *dst, u_char *src, size_t len)
 }
 
 
-size_t
+static size_t
 ngx_strnlen(const char *s, size_t maxlen)
 {
-  const char *p;
+    const char *p;
 
-  p = ngx_strchr(s, '\0');
-  if (p == NULL)
-    return maxlen;
+    p = ngx_strchr(s, '\0');
+    if (p == NULL) {
+        return maxlen;
+    }
 
-  return p - s;
+    return p - s;
 }
 
 
-size_t
+static size_t
 ngx_strlncat(char *dst, size_t len, const char *src, size_t n)
 {
-  size_t slen;
-  size_t dlen;
-  size_t rlen;
-  size_t ncpy;
+    size_t slen;
+    size_t dlen;
+    size_t rlen;
+    size_t ncpy;
 
-  slen = ngx_strnlen(src, n);
-  dlen = ngx_strnlen(dst, len);
+    slen = ngx_strnlen(src, n);
+    dlen = ngx_strnlen(dst, len);
 
-  if (dlen < len) {
-    rlen = len - dlen;
-    ncpy = slen < rlen ? slen : (rlen - 1);
-    ngx_memcpy(dst + dlen, src, ncpy);
-    dst[dlen + ncpy] = '\0';
-  }
+    if (dlen < len) {
+        rlen = len - dlen;
+        ncpy = slen < rlen ? slen : (rlen - 1);
+        ngx_memcpy(dst + dlen, src, ncpy);
+        dst[dlen + ncpy] = '\0';
+    }
 
-  return slen + dlen;
+    return slen + dlen;
 }
 
 
@@ -2683,7 +2679,7 @@ ngx_http_parser_init()
     parser = ngx_calloc(sizeof(http_parser), ngx_cycle->log);
     if (parser == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "ngx_http_parser_init: ngx_calloc is wrong");
+                      "ngx_http_parser_init: ngx_calloc is wrong");
         return NGX_ERROR;
     }
 
@@ -2694,7 +2690,7 @@ ngx_http_parser_init()
 
 
 static void
-ngx_http_parser_execute(ngx_http_dynamic_update_upstream_ctx_t *ctx)
+ngx_http_parser_execute(ngx_http_upsync_ctx_t *ctx)
 {
     char      *buf;
     size_t     parsed;
@@ -2706,7 +2702,7 @@ ngx_http_parser_execute(ngx_http_dynamic_update_upstream_ctx_t *ctx)
     parsed = http_parser_execute(parser, &settings, buf, ngx_strlen(buf));
     if (parsed != ngx_strlen(buf)) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "http_parser_execute: parsed body size is wrong");
+                      "http_parser_execute: parsed body size is wrong");
         return;
     }
 
@@ -2728,14 +2724,13 @@ ngx_http_parser_execute(ngx_http_dynamic_update_upstream_ctx_t *ctx)
 }
 
 
-int
+static int
 ngx_http_status(http_parser *p, const char *buf, size_t len)
 {
     if (p != parser) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "ngx_http_status: parser argument is wrong");
-
-        return -1;
+                      "ngx_http_status: parser argument is wrong");
+        return NGX_ERROR;
     }
 
     ngx_memcpy(state.status, buf, len);
@@ -2744,14 +2739,13 @@ ngx_http_status(http_parser *p, const char *buf, size_t len)
 }
 
 
-int
+static int
 ngx_http_header_field_cb (http_parser *p, const char *buf, size_t len)
 {
     if (p != parser) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "ngx_http_header_field_cb: parser argument is wrong");
-
-        return -1;
+                      "ngx_http_header_field_cb: parser argument is wrong");
+        return NGX_ERROR;
     }
 
     if (state.last_header != FIELD) {
@@ -2765,18 +2759,17 @@ ngx_http_header_field_cb (http_parser *p, const char *buf, size_t len)
 
     state.last_header = FIELD;
 
-    return 0;
+    return NGX_OK;
 }
 
 
-int
+static int
 ngx_http_header_value_cb (http_parser *p, const char *buf, size_t len)
 {
     if (p != parser) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "ngx_http_header_field_cb: parser argument is wrong");
-
-        return -1;
+                      "ngx_http_header_field_cb: parser argument is wrong");
+        return NGX_ERROR;
     }
 
     ngx_strlncat(state.headers[state.num_headers-1][1],
@@ -2786,11 +2779,11 @@ ngx_http_header_value_cb (http_parser *p, const char *buf, size_t len)
 
     state.last_header = VALUE;
 
-  return 0;
+    return NGX_OK;
 }
 
 
-int
+static int
 ngx_http_body(http_parser *p, const char *buf, size_t len)
 {
     char *tmp_buf;
@@ -2799,60 +2792,59 @@ ngx_http_body(http_parser *p, const char *buf, size_t len)
 
     if (p != parser) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                "ngx_http_body: parser argument is wrong");
-
-        return -1;
+                      "ngx_http_body: parser argument is wrong");
+        return NGX_ERROR;
     }
 
     ngx_memcpy(tmp_buf, buf, len);
 
     tmp_buf += len;
 
-    return 0;
+    return NGX_OK;
 }
 
 
 static void
-ngx_http_dynamic_update_upstream_timeout_handler(ngx_event_t *event)
+ngx_http_upsync_timeout_handler(ngx_event_t *event)
 {
-    ngx_http_dynamic_update_upstream_server_t  *peer;
+    ngx_http_upsync_server_t    *upsync_server;
 
-    if (ngx_http_dynamic_update_upstream_need_exit()) {
+    if (ngx_http_upsync_need_exit()) {
         return;
     }
 
-    peer = event->data;
+    upsync_server = event->data;
 
     ngx_log_error(NGX_LOG_ERR, event->log, 0,
-            "dynamic_update_upstream_timeout: time out with peer: %V ", peer->pc.name);
+                  "upsync_timeout: time out with upsync_server: %V ", 
+                  upsync_server->pc.name);
 
-    ngx_http_dynamic_update_upstream_clean_event(peer);
+    ngx_http_upsync_clean_event(upsync_server);
 }
 
 
 static void
-ngx_http_dynamic_update_upstream_clean_event(
-        ngx_http_dynamic_update_upstream_server_t *peer)
+ngx_http_upsync_clean_event(ngx_http_upsync_server_t *upsync_server)
 {
-    ngx_msec_t                                   t, tmp;
-    ngx_pool_t                                  *pool;
-    ngx_connection_t                            *c;
-    ngx_http_dynamic_update_upstream_ctx_t      *ctx;
-    ngx_http_dynamic_update_upstream_srv_conf_t *conf;
+    ngx_msec_t                          t, tmp;
+    ngx_pool_t                         *pool;
+    ngx_connection_t                   *c;
+    ngx_http_upsync_ctx_t              *ctx;
+    ngx_http_upsync_srv_conf_t         *upscf;
 
-    conf = peer->conf;
+    upscf = upsync_server->upscf;
 
-    ctx = &peer->ctx;
+    ctx = &upsync_server->ctx;
     pool = ctx->pool;
 
-    c = peer->pc.connection;
+    c = upsync_server->pc.connection;
 
     if (c) {
         ngx_log_debug1(NGX_LOG_DEBUG_HTTP, c->log, 0,
-                "dynamic_update_upstream_clean_event: clean event: fd: %d", c->fd);
+                       "upsync_clean_event: clean event: fd: %d", c->fd);
 
         ngx_close_connection(c);
-        peer->pc.connection = NULL;
+        upsync_server->pc.connection = NULL;
     }
 
     if (parser != NULL) {
@@ -2865,16 +2857,14 @@ ngx_http_dynamic_update_upstream_clean_event(
     }
     ctx->pool = NULL;
 
-    if (!peer->update_ev.timer_set) {
-
-        tmp = conf->update_interval;
+    if (!upsync_server->update_ev.timer_set) {
+        tmp = upscf->update_interval;
         t = ngx_random() % 1000 + tmp;
-
-        ngx_add_timer(&peer->update_ev, t);
+        ngx_add_timer(&upsync_server->update_ev, t);
     }
 
-    if (peer->update_timeout_ev.timer_set) {
-        ngx_del_timer(&peer->update_timeout_ev);
+    if (upsync_server->update_timeout_ev.timer_set) {
+        ngx_del_timer(&upsync_server->update_timeout_ev);
     }
 
     return;
@@ -2882,10 +2872,10 @@ ngx_http_dynamic_update_upstream_clean_event(
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_need_exit()
+ngx_http_upsync_need_exit()
 {
     if (ngx_terminate || ngx_exiting || ngx_quit) {
-        ngx_http_dynamic_update_upstream_clear_all_events();
+        ngx_http_upsync_clear_all_events();
 
         return 1;
     }
@@ -2895,38 +2885,38 @@ ngx_http_dynamic_update_upstream_need_exit()
 
 
 static void
-ngx_http_dynamic_update_upstream_clear_all_events()
+ngx_http_upsync_clear_all_events()
 {
-    ngx_uint_t                                  i;
-    ngx_connection_t                           *c;
-    ngx_http_dynamic_update_upstream_server_t  *peer;
+    ngx_uint_t                          i;
+    ngx_connection_t                   *c;
+    ngx_http_upsync_server_t           *upsync_server;
 
-    static ngx_flag_t                has_cleared = 0;
+    static ngx_flag_t                   has_cleared = 0;
 
-    if (has_cleared || dynamic_upstream_ctx == NULL) {
+    if (has_cleared || upsync_ctx == NULL) {
         return;
     }
 
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "[WARN]:"
-            "dynamic_update_upstream_clear_all_events: on %P ", ngx_pid);
+                  "upsync_clear_all_events: on %P ", ngx_pid);
 
     has_cleared = 1;
 
-    peer = dynamic_upstream_ctx->conf_server;
+    upsync_server = upsync_ctx->upsync_server;
 
-    for (i = 0; i < dynamic_upstream_ctx->upstream_num; i++) {
+    for (i = 0; i < upsync_ctx->upstream_num; i++) {
 
-        if (peer[i].update_ev.timer_set) {
-            ngx_del_timer(&peer[i].update_ev);
+        if (upsync_server[i].update_ev.timer_set) {
+            ngx_del_timer(&upsync_server[i].update_ev);
         }
 
-        if (peer[i].update_timeout_ev.timer_set) {
-            c = peer[i].pc.connection;
+        if (upsync_server[i].update_timeout_ev.timer_set) {
+            c = upsync_server[i].pc.connection;
             if (c) {
                 ngx_close_connection(c);
-                peer->pc.connection = NULL;
+                upsync_server->pc.connection = NULL;
             }
-            ngx_del_timer(&peer[i].update_timeout_ev);
+            ngx_del_timer(&upsync_server[i].update_timeout_ev);
         }
 
     }
@@ -2941,21 +2931,21 @@ ngx_http_dynamic_update_upstream_clear_all_events()
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_get_upstream(ngx_cycle_t *cycle, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server, char **conf_value)
+ngx_http_upsync_get_upstream(ngx_cycle_t *cycle, 
+    ngx_http_upsync_server_t *upsync_server, char **conf_value)
 {
-    ngx_http_conf_client *client = ngx_http_create_client(cycle, conf_server);
+    ngx_http_conf_client *client = ngx_http_create_client(cycle, upsync_server);
 
     if (client == NULL) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "dynamic_update_upstream_get_upstream: http client create error");
+                      "upsync_get_upstream: http client create error");
         return NGX_ERROR;
     }
 
     ngx_int_t status = ngx_http_client_conn(client);
     if (status != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "dynamic_update_upstream_get_upstream: http client conn error");
+                      "upsync_get_upstream: http client conn error");
 
         ngx_http_client_destroy(client);
         return NGX_ERROR;
@@ -2963,11 +2953,11 @@ ngx_http_dynamic_update_upstream_get_upstream(ngx_cycle_t *cycle,
 
     char *response = NULL;
 
-    ngx_http_client_send(client, conf_server);
+    ngx_http_client_send(client, upsync_server);
 
     if (ngx_http_client_recv(client, &response, 0) <= 0) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "dynamic_update_upstream_get_upstream: http client recv fail");
+                      "upsync_get_upstream: http client recv fail");
 
         if (response != NULL) {
             ngx_free(response);
@@ -2987,14 +2977,14 @@ ngx_http_dynamic_update_upstream_get_upstream(ngx_cycle_t *cycle,
 
 
 static ngx_http_conf_client *
-ngx_http_create_client(ngx_cycle_t *cycle, ngx_http_dynamic_update_upstream_server_t *conf_server)
+ngx_http_create_client(ngx_cycle_t *cycle, ngx_http_upsync_server_t *upsync_server)
 {
     ngx_http_conf_client                         *client = NULL;
-    ngx_http_upstream_server_t                   *us;
-    ngx_http_dynamic_update_upstream_srv_conf_t  *conf;
+    ngx_http_upstream_server_t                   *consul;
+    ngx_http_upsync_srv_conf_t                   *upscf;
 
-    conf = conf_server->conf;
-    us = &conf->us;
+    upscf = upsync_server->upscf;
+    consul = &upscf->consul;
 
     client = ngx_calloc(sizeof(ngx_http_conf_client), cycle->log);
     if (client == NULL) {
@@ -3003,9 +2993,9 @@ ngx_http_create_client(ngx_cycle_t *cycle, ngx_http_dynamic_update_upstream_serv
 
     client->sd = -1;
     client->connected = 0;
-    client->addr = *(struct sockaddr_in *)us->addrs[0].sockaddr;
+    client->addr = *(struct sockaddr_in *)consul->addrs[0].sockaddr;
 
-    if((client->sd = socket(AF_INET,SOCK_STREAM,0)) == -1){
+    if((client->sd = socket(AF_INET,SOCK_STREAM, 0)) == NGX_ERROR) {
         ngx_free(client);
         client = NULL;
 
@@ -3016,16 +3006,20 @@ ngx_http_create_client(ngx_cycle_t *cycle, ngx_http_dynamic_update_upstream_serv
     tv_timeout.tv_sec = NGX_HTTP_SOCKET_TIMEOUT;
     tv_timeout.tv_usec = 0;
 
-    if (setsockopt(client->sd, SOL_SOCKET, SO_SNDTIMEO, (void *) &tv_timeout, sizeof(struct timeval)) < 0) {
+    if (setsockopt(client->sd, SOL_SOCKET, SO_SNDTIMEO, (void *) &tv_timeout, 
+                   sizeof(struct timeval)) < 0) 
+    {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "ngx_http_create_client: setsockopt SO_SNDTIMEO error");
+                      "ngx_http_create_client: setsockopt SO_SNDTIMEO error");
         ngx_http_client_destroy(client);
         return NULL;
     }
 
-    if (setsockopt(client->sd, SOL_SOCKET, SO_RCVTIMEO, (void *) &tv_timeout, sizeof(struct timeval)) < 0) {
+    if (setsockopt(client->sd, SOL_SOCKET, SO_RCVTIMEO, (void *) &tv_timeout, 
+                   sizeof(struct timeval)) < 0) 
+    {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                "ngx_http_create_client: setsockopt SO_RCVTIMEO error");
+                      "ngx_http_create_client: setsockopt SO_RCVTIMEO error");
         ngx_http_client_destroy(client);
         return NULL;
     }
@@ -3037,7 +3031,8 @@ ngx_http_create_client(ngx_cycle_t *cycle, ngx_http_dynamic_update_upstream_serv
 static ngx_int_t
 ngx_http_client_conn(ngx_http_conf_client *client) 
 {
-    if (connect(client->sd, (struct sockaddr *)&(client->addr), sizeof(struct sockaddr)) == -1) {
+    if (connect(client->sd, (struct sockaddr *)&(client->addr), 
+                sizeof(struct sockaddr)) == NGX_ERROR) {
         return NGX_ERROR;
     }
 
@@ -3058,20 +3053,21 @@ ngx_http_client_destroy(ngx_http_conf_client *client)
 
 static ngx_int_t 
 ngx_http_client_send(ngx_http_conf_client *client, 
-        ngx_http_dynamic_update_upstream_server_t *conf_server)
+    ngx_http_upsync_server_t *upsync_server)
 {
     size_t       size = 0;
     ngx_int_t    tmp_send = 0;
     ngx_uint_t   send_num = 0;
 
-    ngx_http_dynamic_update_upstream_srv_conf_t  *conf;
+    ngx_http_upsync_srv_conf_t  *upscf;
 
-    conf = conf_server->conf;
+    upscf = upsync_server->upscf;
 
     u_char request[ngx_pagesize];
     ngx_memzero(request, ngx_pagesize);
-    ngx_sprintf(request, "GET %V?recurse HTTP/1.0\r\nHost: %V\r\nAccept: */*\r\n\r\n", 
-            &conf->update_send, &conf->us.name);
+    ngx_sprintf(request, "GET %V?recurse HTTP/1.0\r\nHost: %V\r\n"
+                "Accept: */*\r\n\r\n", 
+                &upscf->update_send, &upscf->consul.name);
 
     size = ngx_strlen(request);
     while(send_num < size) {
@@ -3079,7 +3075,7 @@ ngx_http_client_send(ngx_http_conf_client *client,
         /* TODO if tmp send is 0? */
         if (tmp_send < 0) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                    "ngx_http_client_send: send byte %d", tmp_send);
+                          "ngx_http_client_send: send byte %d", tmp_send);
             return NGX_ERROR;
         }
 
@@ -3141,30 +3137,31 @@ ngx_http_client_recv(ngx_http_conf_client *client, char **data, int size)
 
 
 static char *
-ngx_http_dynamic_update_upstream_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ngx_http_upsync_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_http_core_loc_conf_t *clcf;
 
     clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
-    clcf->handler = ngx_http_dynamic_update_upstream_show;
+    clcf->handler = ngx_http_upsync_show;
 
     return NGX_CONF_OK;
 }
 
 
 static ngx_int_t
-ngx_http_dynamic_update_upstream_show(ngx_http_request_t *r)
+ngx_http_upsync_show(ngx_http_request_t *r)
 {
     ngx_buf_t                             *b;
     ngx_int_t                              rc, ret;
     ngx_str_t                             *host;
     ngx_uint_t                             i;
     ngx_chain_t                            out;
-    ngx_http_upstream_rr_peers_t          *peers=NULL;
-    ngx_http_upstream_srv_conf_t         **uscfp=NULL, *uscf=NULL;
+    ngx_http_upstream_rr_peers_t          *peers = NULL;
+    ngx_http_upstream_srv_conf_t         **uscfp = NULL, *uscf = NULL;
     ngx_http_upstream_main_conf_t         *umcf;
 
-    umcf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_http_upstream_module);
+    umcf = ngx_http_cycle_get_module_main_conf(ngx_cycle, 
+                                               ngx_http_upstream_module);
 
     uscfp = umcf->upstreams.elts;
 
@@ -3182,7 +3179,6 @@ ngx_http_dynamic_update_upstream_show(ngx_http_request_t *r)
         r->headers_out.status = NGX_HTTP_OK;
 
         rc = ngx_http_send_header(r);
-
         if (rc == NGX_ERROR || rc > NGX_OK || r->header_only) {
             return rc;
         }
@@ -3198,7 +3194,8 @@ ngx_http_dynamic_update_upstream_show(ngx_http_request_t *r)
     host = &r->args;
     if (host->len == 0 || host->data == NULL) {
 
-        b->last = ngx_snprintf(b->last,b->end - b->last, "Please input specific upstream name");
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               "Please input specific upstream name");
         goto end;
     }
 
@@ -3214,8 +3211,9 @@ ngx_http_dynamic_update_upstream_show(ngx_http_request_t *r)
 
     if (i == umcf->upstreams.nelts) {
 
-        b->last = ngx_snprintf(b->last,b->end - b->last, "The upstream name you input is not exited,"
-                                                         "Please check and input again");
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               "The upstream name you input is not exited,"
+                               "Please check and input again");
         goto end;
     }
 
@@ -3223,14 +3221,20 @@ ngx_http_dynamic_update_upstream_show(ngx_http_request_t *r)
         peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
     }
 
-    b->last = ngx_snprintf(b->last,b->end - b->last, "Upstream name: %V;", host);
-    b->last = ngx_snprintf(b->last,b->end - b->last, "Backend server counts: %d\n", peers->number);
+    b->last = ngx_snprintf(b->last,b->end - b->last, 
+                           "Upstream name: %V;", host);
+    b->last = ngx_snprintf(b->last,b->end - b->last, 
+                           "Backend server counts: %d\n", peers->number);
 
     for (i = 0; i < peers->number; i++) {
-        b->last = ngx_snprintf(b->last,b->end - b->last, "        server %V", &peers->peer[i].name);
-        b->last = ngx_snprintf(b->last,b->end - b->last, " weight=%d", peers->peer[i].weight);
-        b->last = ngx_snprintf(b->last,b->end - b->last, " max_fails=%d", peers->peer[i].max_fails);
-        b->last = ngx_snprintf(b->last,b->end - b->last, " fail_timeout=%d;\n", peers->peer[i].fail_timeout);
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               "        server %V", &peers->peer[i].name);
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               " weight=%d", peers->peer[i].weight);
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               " max_fails=%d", peers->peer[i].max_fails);
+        b->last = ngx_snprintf(b->last,b->end - b->last, 
+                               " fail_timeout=%d;\n", peers->peer[i].fail_timeout);
     }
 
 end:
