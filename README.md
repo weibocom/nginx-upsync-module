@@ -1,7 +1,11 @@
 Name
 ====
 
-nginx-upsync-module - Nginx C module, nginx + consul server discovery service, dynamicly update upstream backend servers, dynamicly adjust backend servers weight, needn't reload nginx.
+nginx-upsync-module - Nginx C module, syncing upstreams from consul or others, dynamiclly adjusting backend servers weight, needn't reload nginx.
+
+It may not always be convenient to modify configuration files and restart NGINX. For example, if you are experiencing large amounts of traffic and high load, restarting NGINX and reloading the configuration at that point further increases load on the system and can temporarily degrade performance.
+
+The module can be more smoothly expansion and constriction, and will not influence the performance.
 
 Table of Contents
 =================
@@ -181,6 +185,8 @@ or
 * adjust-weight
 ```
     curl -X PUT -d "{\"weight\":2}" http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
+or
+    curl -X PUT -d '{"weight":2}' http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
 ```
 
 * check
@@ -268,7 +274,7 @@ see also
 ========
 * the nginx_upstream_check_module: https://github.com/alibaba/tengine/blob/master/src/http/ngx_http_upstream_check_module.c
 * the nginx_upstream_check_module patch: https://github.com/yaoweibin/nginx_upstream_check_module
-* or if you want to use check_module, you can based on https://github.com/xiaokai-wang/nginx_upstream_check_module
+* or based on https://github.com/xiaokai-wang/nginx_upstream_check_module
 
 [back to toc](#table-of-contents)
 
