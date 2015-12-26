@@ -201,6 +201,8 @@ TODO
 
 * support least_conn load_balancing
 
+* support etcd, zookeeper and so on
+
 [Back to TOC](#table-of-contents)
 
 Compatibility

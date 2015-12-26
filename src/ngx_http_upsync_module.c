@@ -76,8 +76,8 @@ typedef struct {
 
 
 typedef struct {
-    ngx_str_t                        consul_host;
-    ngx_int_t                        consul_port;
+    ngx_str_t                        upsync_host;
+    ngx_int_t                        upsync_port;
 
     ngx_msec_t                       update_timeout;
     ngx_msec_t                       update_interval;
@@ -89,7 +89,7 @@ typedef struct {
 
     ngx_open_file_t                 *conf_file;
 
-    ngx_http_upstream_server_t       consul;         /* consul server */
+    ngx_http_upstream_server_t       conf_server;         /* conf server */
 } ngx_http_upsync_srv_conf_t;
 
 
@@ -233,7 +233,7 @@ static void ngx_http_upsync_timeout_handler(ngx_event_t *event);
 static void ngx_http_upsync_clean_event(ngx_http_upsync_server_t *upsync_server);
 static ngx_int_t ngx_http_upsync_dump_conf(
     ngx_http_upsync_server_t *upsync_server);
-static ngx_int_t ngx_http_upsync_init_consul(ngx_event_t *event);
+static ngx_int_t ngx_http_upsync_init_server(ngx_event_t *event);
 
 static ngx_int_t ngx_http_upsync_add_server(ngx_cycle_t *cycle, 
     ngx_http_upsync_server_t *upsync_server);
@@ -386,7 +386,7 @@ ngx_http_upsync_consul_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     upscf = ngx_http_conf_get_module_srv_conf(cf,
                                               ngx_http_upsync_module);
-    consul = &upscf->consul;
+    consul = &upscf->conf_server;
 
     for (i = 2; i < cf->args->nelts; i++) {
 
@@ -465,11 +465,11 @@ ngx_http_upsync_consul_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     p = (u_char *)ngx_strchr(value[1].data, ':');
     if (p != NULL) {
-        upscf->consul_host.data = value[1].data;
-        upscf->consul_host.len = p - value[1].data;
+        upscf->upsync_host.data = value[1].data;
+        upscf->upsync_host.len = p - value[1].data;
 
-        upscf->consul_port = ngx_atoi(p + 1, upscf->update_send.data - p - 1);
-        if (upscf->consul_port < 1 || upscf->consul_port > 65535) {
+        upscf->upsync_port = ngx_atoi(p + 1, upscf->update_send.data - p - 1);
+        if (upscf->upsync_port < 1 || upscf->upsync_port > 65535) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                "upsync_consul_server: "
                                "consul server port is invalid");
@@ -477,10 +477,10 @@ ngx_http_upsync_consul_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
 
     } else {
-        upscf->consul_host.data = value[1].data;
-        upscf->consul_host.len = u.url.len;
+        upscf->upsync_host.data = value[1].data;
+        upscf->upsync_host.len = u.url.len;
 
-        upscf->consul_port = 80;
+        upscf->upsync_port = 80;
     }
 
     u.default_port = 80;
@@ -743,7 +743,7 @@ invalid:
 
 static ngx_int_t
 ngx_http_upsync_add_peer(ngx_cycle_t *cycle,
-        ngx_array_t *servers, ngx_http_upsync_server_t *upsync_server)
+    ngx_array_t *servers, ngx_http_upsync_server_t *upsync_server)
 {
     ngx_uint_t                     i=0, n=0, w=0, m=0;
     ngx_http_upstream_server_t    *server = NULL;
@@ -852,7 +852,6 @@ ngx_http_upsync_add_check(ngx_cycle_t *cycle,
     }
 
     uscf = upsync_server->uscf;
-
     if (uscf->peer.data != NULL) {
         peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
 
@@ -886,7 +885,7 @@ ngx_http_upsync_add_check(ngx_cycle_t *cycle,
 
 static ngx_int_t
 ngx_http_upsync_del_server(ngx_cycle_t *cycle, 
-        ngx_http_upsync_server_t *upsync_server)
+    ngx_http_upsync_server_t *upsync_server)
 {
     u_char                             *port, *p, *last, *pp;
     ngx_int_t                           n, j;
@@ -977,7 +976,7 @@ ngx_http_upsync_del_server(ngx_cycle_t *cycle,
 
 static ngx_int_t
 ngx_http_upsync_del_peer(ngx_cycle_t *cycle,
-        ngx_http_upstream_server_t *us, ngx_http_upsync_server_t *upsync_server)
+    ngx_http_upstream_server_t *us, ngx_http_upsync_server_t *upsync_server)
 {
     ngx_uint_t                          i, j, n=0, w=0, len=0;
     ngx_http_upstream_rr_peers_t       *peers = NULL, *tmp_peers = NULL;
@@ -1077,7 +1076,7 @@ invalid:
 
 static void
 ngx_http_upsync_del_check(ngx_cycle_t *cycle, 
-        ngx_http_upsync_server_t *upsync_server)
+    ngx_http_upsync_server_t *upsync_server)
 {
     ngx_uint_t                         i, j, len;
     ngx_http_upsync_ctx_t             *ctx;
@@ -1095,7 +1094,6 @@ ngx_http_upsync_del_check(ngx_cycle_t *cycle,
     }
 
     uscf = upsync_server->uscf;
-
     if (uscf->peer.data != NULL) {
         peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
 
@@ -1104,7 +1102,6 @@ ngx_http_upsync_del_check(ngx_cycle_t *cycle,
     }
 
     len = ctx->upstream_conf.nelts;
-
     for (i = 0; i < peers->number; i++) {
         for (j = 0; j < len; j++) {
 
@@ -1130,7 +1127,7 @@ ngx_http_upsync_del_check(ngx_cycle_t *cycle,
 
 static ngx_int_t
 ngx_http_upsync_server_weight(ngx_cycle_t *cycle,
-        ngx_http_upsync_server_t *upsync_server)
+    ngx_http_upsync_server_t *upsync_server)
 {
     ngx_uint_t                           i, j, w=0, len=0;
     ngx_http_upsync_ctx_t               *ctx;
@@ -1483,10 +1480,10 @@ ngx_http_upsync_create_srv_conf(ngx_conf_t *cf)
         return NULL;
     }
 
-    upscf->consul_host.len = NGX_CONF_UNSET_SIZE;
-    upscf->consul_host.data = NGX_CONF_UNSET_PTR;
+    upscf->upsync_host.len = NGX_CONF_UNSET_SIZE;
+    upscf->upsync_host.data = NGX_CONF_UNSET_PTR;
 
-    upscf->consul_port = NGX_CONF_UNSET;
+    upscf->upsync_port = NGX_CONF_UNSET;
 
     upscf->upstream_conf_path.len = NGX_CONF_UNSET_SIZE;
     upscf->upstream_conf_path.data = NGX_CONF_UNSET_PTR;
@@ -1498,7 +1495,7 @@ ngx_http_upsync_create_srv_conf(ngx_conf_t *cf)
 
     upscf->conf_file = NGX_CONF_UNSET_PTR;
 
-    ngx_memzero(&upscf->consul, sizeof(upscf->consul));
+    ngx_memzero(&upscf->conf_server, sizeof(upscf->conf_server));
 
     return upscf;
 }
@@ -1517,8 +1514,8 @@ ngx_http_upsync_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_uint_t num)
     }
 
     upscf = ngx_http_conf_upstream_srv_conf(uscf, ngx_http_upsync_module);
-    if (upscf->consul_host.data == NGX_CONF_UNSET_PTR 
-        && upscf->consul_host.len == NGX_CONF_UNSET_SIZE) {
+    if (upscf->upsync_host.data == NGX_CONF_UNSET_PTR 
+        && upscf->upsync_host.len == NGX_CONF_UNSET_SIZE) {
         return NGX_CONF_OK;
     }
 
@@ -1946,7 +1943,7 @@ ngx_http_upsync_connect_handler(ngx_event_t *event)
         return;
     }
 
-    if (ngx_http_upsync_init_consul(event) != NGX_OK) {
+    if (ngx_http_upsync_init_server(event) != NGX_OK) {
         return;
     }
 
@@ -2005,7 +2002,7 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
     ngx_memzero(request, ngx_pagesize);
     ngx_sprintf(request, "GET %V?recurse&index=%d HTTP/1.0\r\nHost: %V\r\n"
                 "Accept: */*\r\n\r\n", 
-                &upscf->update_send, upsync_server->index, &upscf->consul.name);
+                &upscf->update_send, upsync_server->index, &upscf->conf_server.name);
 
     ctx->send.pos = request;
     ctx->send.last = ctx->send.pos + ngx_strlen(request);
@@ -2210,8 +2207,8 @@ ngx_http_upsync_dump_conf(ngx_http_upsync_server_t *upsync_server)
     b->last = ngx_snprintf(b->last,b->end - b->last, 
                            "\n\tconsul %V:%d%V update_interval=%dms"
                            " update_timeout=%dms;\n", 
-                           &upsync_server->upscf->consul_host,
-                           upsync_server->upscf->consul_port,
+                           &upsync_server->upscf->upsync_host,
+                           upsync_server->upscf->upsync_port,
                            &upsync_server->upscf->update_send,
                            upsync_server->upscf->update_interval,
                            upsync_server->upscf->update_timeout);
@@ -2297,13 +2294,13 @@ ngx_http_upsync_dump_conf(ngx_http_upsync_server_t *upsync_server)
 
 
 static ngx_int_t
-ngx_http_upsync_init_consul(ngx_event_t *event)
+ngx_http_upsync_init_server(ngx_event_t *event)
 {
     ngx_pool_t                              *pool;
     ngx_http_upsync_ctx_t                   *ctx;
     ngx_http_upsync_server_t                *upsync_server;
     ngx_http_upsync_srv_conf_t              *upscf;
-    ngx_http_upstream_server_t              *consul;
+    ngx_http_upstream_server_t              *conf_server;
 
     u_char               *p, *host = NULL;
     size_t                len;
@@ -2313,7 +2310,7 @@ ngx_http_upsync_init_consul(ngx_event_t *event)
 
     upsync_server = event->data;
     upscf = upsync_server->upscf;
-    consul = &upscf->consul;
+    conf_server = &upscf->conf_server;
 
     ctx = &upsync_server->ctx;
     if (ctx->pool == NULL) {
@@ -2336,15 +2333,15 @@ ngx_http_upsync_init_consul(ngx_event_t *event)
     upsync_server->pc.cached = 0;
     upsync_server->pc.connection = NULL;
 
-    if (ngx_inet_addr(upscf->consul_host.data, upscf->consul_host.len)
+    if (ngx_inet_addr(upscf->upsync_host.data, upscf->upsync_host.len)
             == INADDR_NONE) {
 
-        host = ngx_pcalloc(ctx->pool, upscf->consul_host.len + 1);
+        host = ngx_pcalloc(ctx->pool, upscf->upsync_host.len + 1);
         if (host == NULL) {
             return NGX_ERROR;
         }
 
-        (void) ngx_cpystrn(host, upscf->consul_host.data, upscf->consul_host.len + 1);
+        (void) ngx_cpystrn(host, upscf->upsync_host.data, upscf->upsync_host.len + 1);
 
         ngx_memzero(&hints, sizeof(struct addrinfo));
         hints.ai_family = AF_UNSPEC;
@@ -2370,7 +2367,7 @@ ngx_http_upsync_init_consul(ngx_event_t *event)
             }
 
             ngx_memcpy(sin, rp->ai_addr, rp->ai_addrlen);
-            sin->sin_port = htons((in_port_t) upscf->consul_port);
+            sin->sin_port = htons((in_port_t) upscf->upsync_port);
 
             upsync_server->pc.sockaddr = (struct sockaddr *) sin;
             upsync_server->pc.socklen = rp->ai_addrlen;
@@ -2398,9 +2395,10 @@ ngx_http_upsync_init_consul(ngx_event_t *event)
     }
 
 valid:
-    upsync_server->pc.sockaddr = consul->addrs[0].sockaddr;
-    upsync_server->pc.socklen = consul->addrs[0].socklen;
-    upsync_server->pc.name = &consul->addrs[0].name;
+
+    upsync_server->pc.sockaddr = conf_server->addrs[0].sockaddr;
+    upsync_server->pc.socklen = conf_server->addrs[0].socklen;
+    upsync_server->pc.name = &conf_server->addrs[0].name;
 
     if (res != NULL) {
         freeaddrinfo(res);
@@ -2918,7 +2916,6 @@ ngx_http_upsync_clear_all_events()
             }
             ngx_del_timer(&upsync_server[i].update_timeout_ev);
         }
-
     }
 
     if (parser != NULL) {
@@ -2980,11 +2977,11 @@ static ngx_http_conf_client *
 ngx_http_create_client(ngx_cycle_t *cycle, ngx_http_upsync_server_t *upsync_server)
 {
     ngx_http_conf_client                         *client = NULL;
-    ngx_http_upstream_server_t                   *consul;
+    ngx_http_upstream_server_t                   *conf_server;
     ngx_http_upsync_srv_conf_t                   *upscf;
 
     upscf = upsync_server->upscf;
-    consul = &upscf->consul;
+    conf_server = &upscf->conf_server;
 
     client = ngx_calloc(sizeof(ngx_http_conf_client), cycle->log);
     if (client == NULL) {
@@ -2993,7 +2990,7 @@ ngx_http_create_client(ngx_cycle_t *cycle, ngx_http_upsync_server_t *upsync_serv
 
     client->sd = -1;
     client->connected = 0;
-    client->addr = *(struct sockaddr_in *)consul->addrs[0].sockaddr;
+    client->addr = *(struct sockaddr_in *)conf_server->addrs[0].sockaddr;
 
     if((client->sd = socket(AF_INET,SOCK_STREAM, 0)) == NGX_ERROR) {
         ngx_free(client);
@@ -3065,9 +3062,9 @@ ngx_http_client_send(ngx_http_conf_client *client,
 
     u_char request[ngx_pagesize];
     ngx_memzero(request, ngx_pagesize);
-    ngx_sprintf(request, "GET %V?recurse HTTP/1.0\r\nHost: %V\r\n"
+    ngx_sprintf(request, "GET %V?recurse&index=%d HTTP/1.0\r\nHost: %V\r\n"
                 "Accept: */*\r\n\r\n", 
-                &upscf->update_send, &upscf->consul.name);
+                &upscf->update_send, upsync_server->index, &upscf->conf_server.name);
 
     size = ngx_strlen(request);
     while(send_num < size) {
