@@ -2,6 +2,6 @@ have=NGX_HTTP_UPSYNC . auto/have
 ngx_addon_name=ngx_http_upsync_module
 HTTP_MODULES="$HTTP_MODULES ngx_http_upsync_module"
 NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/src/ngx_http_upsync_module.c $ngx_addon_dir/src/ngx_http_json.c $ngx_addon_dir/src/ngx_http_parser.c"
-NGX_ADDON_DEPS="$NGX_ADDON_DEPS $ngx_addon_dir/src/ngx_http_json.h $ngx_addon_dir/src/ngx_http_parser.h"
+NGX_ADDON_DEPS="$NGX_ADDON_DEPS $ngx_addon_dir/src/ngx_http_upsync_module.h $ngx_addon_dir/src/ngx_http_json.h $ngx_addon_dir/src/ngx_http_parser.h"
 ngx_feature_libs="-lm"
 CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
