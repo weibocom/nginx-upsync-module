@@ -31,7 +31,7 @@ typedef struct {
 
     unsigned                         down:1;
     unsigned                         backup:1;
-} ngx_http_update_conf_t;
+} ngx_http_upsync_conf_t;
 
 
 #define NGX_HTTP_UPSYNC_CONSUL               0x0001
@@ -46,9 +46,9 @@ typedef void (*ngx_http_upsync_packet_clean_pt)
 
 
 typedef struct {
-    ngx_uint_t                               type;
-
     ngx_str_t                                name;
+
+    ngx_uint_t                               upsync_type;
 
     ngx_event_handler_pt                     send_handler;
     ngx_event_handler_pt                     recv_handler;
@@ -69,7 +69,7 @@ typedef struct {
 
     ngx_uint_t                       upstream_count;
 
-    ngx_array_t                      del_upstream;  /* ngx_http_update_conf_t */
+    ngx_array_t                      del_upstream;  /* ngx_http_upsync_conf_t */
     ngx_array_t                      add_upstream;
 
     ngx_array_t                      upstream_conf;
@@ -80,12 +80,12 @@ typedef struct {
     ngx_str_t                        upsync_host;
     ngx_int_t                        upsync_port;
 
-    ngx_msec_t                       update_timeout;
-    ngx_msec_t                       update_interval;
+    ngx_msec_t                       upsync_timeout;
+    ngx_msec_t                       upsync_interval;
 
     ngx_uint_t                       strong_dependency;
 
-    ngx_str_t                        update_send;
+    ngx_str_t                        upsync_send;
     ngx_str_t                        upsync_conf_path;
 
     ngx_open_file_t                 *conf_file;
@@ -96,14 +96,14 @@ typedef struct {
 } ngx_http_upsync_srv_conf_t;
 
 
-/* based on upstream conf, every unit update from consul */
+/* based on upstream conf, every unit upsync from consul */
 typedef struct {
     ngx_str_t                                host;
 
     ngx_uint_t                               index;
 
-    ngx_event_t                              update_ev;
-    ngx_event_t                              update_timeout_ev;
+    ngx_event_t                              upsync_ev;
+    ngx_event_t                              upsync_timeout_ev;
 
     ngx_queue_t                              add_ev;
     ngx_queue_t                              delete_ev;
@@ -324,16 +324,16 @@ ngx_module_t  ngx_http_upsync_module = {
 
 static ngx_upsync_conf_t  ngx_upsync_types[] = {
 
-    { NGX_HTTP_UPSYNC_CONSUL,
-      ngx_string("consul"),
+    { ngx_string("consul"),
+      NGX_HTTP_UPSYNC_CONSUL,
       ngx_http_upsync_send_handler,
       ngx_http_upsync_recv_handler,
       ngx_http_upsync_parse_init,
       ngx_http_upsync_parse_json,
       ngx_http_upsync_clean_event },
 
-    { 0,
-      ngx_null_string,
+    { ngx_null_string,
+      0,
       NULL,
       NULL,
       NULL,
@@ -346,7 +346,7 @@ static char *
 ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     u_char                             *p = NULL;
-    time_t                              update_timeout = 0, update_interval = 0;
+    time_t                              upsync_timeout = 0, upsync_interval = 0;
     ngx_str_t                          *value, s;
     ngx_url_t                           u;
     ngx_uint_t                          i, strong_dependency = 0;
@@ -361,26 +361,26 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     for (i = 2; i < cf->args->nelts; i++) {
 
-        if (ngx_strncmp(value[i].data, "update_timeout=", 15) == 0) {
+        if (ngx_strncmp(value[i].data, "upsync_timeout=", 15) == 0) {
 
             s.len = value[i].len - 15;
             s.data = &value[i].data[15];
 
-            update_timeout = ngx_parse_time(&s, 0);
-            if (update_timeout == (time_t) NGX_ERROR) {
+            upsync_timeout = ngx_parse_time(&s, 0);
+            if (upsync_timeout == (time_t) NGX_ERROR) {
                 goto invalid;
             }
 
             continue;
         }
 
-        if (ngx_strncmp(value[i].data, "update_interval=", 16) == 0) {
+        if (ngx_strncmp(value[i].data, "upsync_interval=", 16) == 0) {
 
             s.len = value[i].len - 16;
             s.data = &value[i].data[16];
 
-            update_interval = ngx_parse_time(&s, 0);
-            if (update_interval == (time_t) NGX_ERROR) {
+            upsync_interval = ngx_parse_time(&s, 0);
+            if (upsync_interval == (time_t) NGX_ERROR) {
                 goto invalid;
             }
 
@@ -406,9 +406,9 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             continue;
         }
 
-        if (ngx_strncmp(value[i].data, "type=", 5) == 0) {
-            s.len = value[i].len - 5;
-            s.data = value[i].data + 5;
+        if (ngx_strncmp(value[i].data, "upsync_type=", 12) == 0) {
+            s.len = value[i].len - 12;
+            s.data = value[i].data + 12;
 
             upscf->upsync_type_conf = ngx_http_get_upsync_type_conf(&s);
             if (upscf->upsync_type_conf == NULL) {
@@ -421,11 +421,11 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         goto invalid;
     }
 
-    if (update_interval != 0) {
-        upscf->update_interval = update_interval;
+    if (upsync_interval != 0) {
+        upscf->upsync_interval = upsync_interval;
     }
-    if (update_timeout != 0) {
-        upscf->update_timeout = update_timeout;
+    if (upsync_timeout != 0) {
+        upscf->upsync_timeout = upsync_timeout;
     }
     if (strong_dependency != 0) {
         upscf->strong_dependency = strong_dependency;
@@ -440,8 +440,8 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
                            "please input conf_server upstream key in upstream");
         return NGX_CONF_ERROR;
     }
-    upscf->update_send.data = p;
-    upscf->update_send.len = value[1].len - (p - value[1].data);
+    upscf->upsync_send.data = p;
+    upscf->upsync_send.len = value[1].len - (p - value[1].data);
 
     u.url.data = value[1].data;
     u.url.len = p - value[1].data;
@@ -451,7 +451,7 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         upscf->upsync_host.data = value[1].data;
         upscf->upsync_host.len = p - value[1].data;
 
-        upscf->upsync_port = ngx_atoi(p + 1, upscf->update_send.data - p - 1);
+        upscf->upsync_port = ngx_atoi(p + 1, upscf->upsync_send.data - p - 1);
         if (upscf->upsync_port < 1 || upscf->upsync_port > 65535) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                "upsync_consul_server: "
@@ -502,7 +502,7 @@ ngx_http_get_upsync_type_conf(ngx_str_t *str)
 
     for (i = 0; /* void */ ; i++) {
 
-        if (ngx_upsync_types[i].type == 0) {
+        if (ngx_upsync_types[i].upsync_type == 0) {
             break;
         }
 
@@ -623,7 +623,7 @@ ngx_http_upsync_check_index(ngx_http_upsync_server_t *upsync_server)
 
     upsync_type_conf = upsync_server->upscf->upsync_type_conf;
 
-    if (upsync_type_conf->type == NGX_HTTP_UPSYNC_CONSUL) {
+    if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL) {
         for (i = 0; i < state.num_headers; i++) {
 
             if (ngx_memcmp(state.headers[i][0], NGX_INDEX_HEARDER, 
@@ -661,7 +661,7 @@ ngx_http_upsync_add_server(ngx_cycle_t *cycle,
     ngx_addr_t                      *addrs;
     ngx_array_t                      servers;  /* ngx_http_upstream_server_t */
     ngx_http_upsync_ctx_t           *ctx;
-    ngx_http_update_conf_t          *conf;
+    ngx_http_upsync_conf_t          *conf;
     ngx_http_upstream_server_t      *server;
 
     struct sockaddr_in  *sin;
@@ -675,7 +675,7 @@ ngx_http_upsync_add_server(ngx_cycle_t *cycle,
     }
 
     for (i = 0; i < ctx->add_upstream.nelts; i++) {
-        conf = (ngx_http_update_conf_t *)ctx->add_upstream.elts + i;
+        conf = (ngx_http_upsync_conf_t *)ctx->add_upstream.elts + i;
 
         p = conf->sockaddr;
         last = p + ngx_strlen(p);
@@ -861,7 +861,7 @@ ngx_http_upsync_add_check(ngx_cycle_t *cycle,
 {
     ngx_uint_t                          i, j, len;
     ngx_http_upsync_ctx_t              *ctx;
-    ngx_http_update_conf_t             *upstream_conf, *add_upstream;
+    ngx_http_upsync_conf_t             *upstream_conf, *add_upstream;
     ngx_http_upstream_rr_peers_t       *peers = NULL;
     ngx_http_upstream_srv_conf_t       *uscf;
 
@@ -885,7 +885,7 @@ ngx_http_upsync_add_check(ngx_cycle_t *cycle,
 
     len = ctx->upstream_conf.nelts;
     for (i = 0; i < len; i++) {
-        upstream_conf = (ngx_http_update_conf_t *)ctx->upstream_conf.elts + i;
+        upstream_conf = (ngx_http_upsync_conf_t *)ctx->upstream_conf.elts + i;
 
         for (j = 0; j < peers->number; j++) {
 
@@ -917,7 +917,7 @@ ngx_http_upsync_del_server(ngx_cycle_t *cycle,
     ngx_pool_t                         *pool;
     ngx_addr_t                         *addrs;
     ngx_http_upsync_ctx_t              *ctx;
-    ngx_http_update_conf_t             *conf;
+    ngx_http_upsync_conf_t             *conf;
     ngx_http_upstream_server_t          us;
 
     struct sockaddr_in  *sin;
@@ -933,7 +933,7 @@ ngx_http_upsync_del_server(ngx_cycle_t *cycle,
     }
 
     for (i = 0, j = 0; i < ctx->del_upstream.nelts; i++, j++) {
-        conf = (ngx_http_update_conf_t *)ctx->del_upstream.elts + i;
+        conf = (ngx_http_upsync_conf_t *)ctx->del_upstream.elts + i;
 
         p = conf->sockaddr;
         last = p + ngx_strlen(p);
@@ -1104,7 +1104,7 @@ ngx_http_upsync_del_check(ngx_cycle_t *cycle,
 {
     ngx_uint_t                         i, j, len;
     ngx_http_upsync_ctx_t             *ctx;
-    ngx_http_update_conf_t            *upstream_conf, *del_upstream;
+    ngx_http_upsync_conf_t            *upstream_conf, *del_upstream;
     ngx_http_upstream_rr_peers_t      *peers = NULL;
     ngx_http_upstream_srv_conf_t      *uscf;
 
@@ -1129,7 +1129,7 @@ ngx_http_upsync_del_check(ngx_cycle_t *cycle,
     for (i = 0; i < peers->number; i++) {
         for (j = 0; j < len; j++) {
 
-            upstream_conf = (ngx_http_update_conf_t *)ctx->upstream_conf.elts + j;
+            upstream_conf = (ngx_http_upsync_conf_t *)ctx->upstream_conf.elts + j;
             if (ngx_memcmp(peers->peer[i].name.data, 
                            upstream_conf->sockaddr, peers->peer[i].name.len) 
                     == 0) 
@@ -1155,7 +1155,7 @@ ngx_http_upsync_server_weight(ngx_cycle_t *cycle,
 {
     ngx_uint_t                           i, j, w=0, len=0;
     ngx_http_upsync_ctx_t               *ctx;
-    ngx_http_update_conf_t              *upstream_conf;
+    ngx_http_upsync_conf_t              *upstream_conf;
     ngx_http_upstream_srv_conf_t        *uscf;
     ngx_http_upstream_rr_peers_t        *peers = NULL;
 
@@ -1178,7 +1178,7 @@ ngx_http_upsync_server_weight(ngx_cycle_t *cycle,
     for (i = 0; i < peers->number; i++) {
         for (j = 0; j < len; j++) {
 
-            upstream_conf = (ngx_http_update_conf_t *)ctx->upstream_conf.elts + j;
+            upstream_conf = (ngx_http_upsync_conf_t *)ctx->upstream_conf.elts + j;
             if (ngx_memcmp(peers->peer[i].name.data, 
                            upstream_conf->sockaddr, peers->peer[i].name.len) 
                     == 0) 
@@ -1206,7 +1206,7 @@ ngx_http_upsync_parse_json(void *data)
     ngx_int_t                       max_fails=2, backup=0, down=0;
     ngx_str_t                       src, dst;
     ngx_http_upsync_ctx_t          *ctx;
-    ngx_http_update_conf_t         *upstream_conf = NULL;
+    ngx_http_upsync_conf_t         *upstream_conf = NULL;
     ngx_http_upsync_server_t       *upsync_server = data;
 
     ctx = &upsync_server->ctx;
@@ -1516,8 +1516,8 @@ ngx_http_upsync_create_srv_conf(ngx_conf_t *cf)
     upscf->upsync_conf_path.len = NGX_CONF_UNSET_SIZE;
     upscf->upsync_conf_path.data = NGX_CONF_UNSET_PTR;
 
-    upscf->update_timeout = NGX_CONF_UNSET_MSEC;
-    upscf->update_interval = NGX_CONF_UNSET_MSEC;
+    upscf->upsync_timeout = NGX_CONF_UNSET_MSEC;
+    upscf->upsync_interval = NGX_CONF_UNSET_MSEC;
 
     upscf->strong_dependency = NGX_CONF_UNSET_UINT;
 
@@ -1556,12 +1556,12 @@ ngx_http_upsync_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_uint_t num)
         return NGX_CONF_ERROR;
     }
 
-    if (upscf->update_timeout == NGX_CONF_UNSET_MSEC) {
-        upscf->update_timeout = 1000 * 60 * 6;
+    if (upscf->upsync_timeout == NGX_CONF_UNSET_MSEC) {
+        upscf->upsync_timeout = 1000 * 60 * 6;
     }
 
-    if (upscf->update_interval == NGX_CONF_UNSET_MSEC) {
-        upscf->update_interval = 1000 * 5;
+    if (upscf->upsync_interval == NGX_CONF_UNSET_MSEC) {
+        upscf->upsync_interval = 1000 * 5;
     }
 
     if (upscf->strong_dependency == NGX_CONF_UNSET_UINT) {
@@ -1889,25 +1889,25 @@ ngx_http_upsync_add_timers(ngx_cycle_t *cycle)
     srandom(ngx_pid);
     for (i = 0; i < upsync_ctx->upstream_num; i++) {
 
-        upsync_server[i].update_ev.handler = ngx_http_upsync_begin_handler;
-        upsync_server[i].update_ev.log = cycle->log;
-        upsync_server[i].update_ev.data = &upsync_server[i];
-        upsync_server[i].update_ev.timer_set = 0;
+        upsync_server[i].upsync_ev.handler = ngx_http_upsync_begin_handler;
+        upsync_server[i].upsync_ev.log = cycle->log;
+        upsync_server[i].upsync_ev.data = &upsync_server[i];
+        upsync_server[i].upsync_ev.timer_set = 0;
 
-        upsync_server[i].update_timeout_ev.handler =
+        upsync_server[i].upsync_timeout_ev.handler =
             ngx_http_upsync_timeout_handler;
-        upsync_server[i].update_timeout_ev.log = cycle->log;
-        upsync_server[i].update_timeout_ev.data = &upsync_server[i];
-        upsync_server[i].update_timeout_ev.timer_set = 0;
+        upsync_server[i].upsync_timeout_ev.log = cycle->log;
+        upsync_server[i].upsync_timeout_ev.data = &upsync_server[i];
+        upsync_server[i].upsync_timeout_ev.timer_set = 0;
 
         /*
          * We add a random start time here, since we don't want to trigger
          * the check events too close to each other at the beginning.
          */
-        tmp = upscf->update_interval;
+        tmp = upscf->upsync_interval;
         t = ngx_random() % 1000 + tmp;
 
-        ngx_add_timer(&upsync_server[i].update_ev, t);
+        ngx_add_timer(&upsync_server[i].upsync_ev, t);
     }
 
     return NGX_OK;
@@ -1944,8 +1944,8 @@ ngx_http_upsync_begin_handler(ngx_event_t *event)
     }
     parser = NULL;
 
-    if (upsync_server->update_ev.timer_set) {
-        ngx_del_timer(&upsync_server->update_ev);
+    if (upsync_server->upsync_ev.timer_set) {
+        ngx_del_timer(&upsync_server->upsync_ev);
     }
 
     ngx_http_upsync_connect_handler(event);
@@ -1973,7 +1973,7 @@ ngx_http_upsync_connect_handler(ngx_event_t *event)
     upscf = upsync_server->upscf;
     upsync_type_conf = upscf->upsync_type_conf;
 
-    ngx_add_timer(&upsync_server->update_timeout_ev, upscf->update_timeout);
+    ngx_add_timer(&upsync_server->upsync_timeout_ev, upscf->upsync_timeout);
 
     rc = ngx_event_connect_peer(&upsync_server->pc);
     if (rc == NGX_ERROR || rc == NGX_DECLINED) {
@@ -2027,10 +2027,10 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
     u_char request[ngx_pagesize];
     ngx_memzero(request, ngx_pagesize);
 
-    if (upsync_type_conf->type == NGX_HTTP_UPSYNC_CONSUL) {
+    if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL) {
         ngx_sprintf(request, "GET %V?recurse&index=%d HTTP/1.0\r\nHost: %V\r\n"
                     "Accept: */*\r\n\r\n", 
-                    &upscf->update_send, upsync_server->index, 
+                    &upscf->upsync_send, upsync_server->index, 
                     &upscf->conf_server.name);
     }
 
@@ -2058,7 +2058,7 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
 
         } else {
             c->error = 1;
-            goto update_send_fail;
+            goto upsync_send_fail;
         }
     }
 
@@ -2069,7 +2069,7 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
 
     return;
 
-update_send_fail:
+upsync_send_fail:
     ngx_log_error(NGX_LOG_ERR, event->log, 0,
                   "upsync_send: send error with upsync_server: %V", 
                   upsync_server->pc.name);
@@ -2115,7 +2115,7 @@ ngx_http_upsync_recv_handler(ngx_event_t *event)
         /* 1 of the page_size, is it enough? */
         ctx->recv.start = ngx_pcalloc(pool, ngx_pagesize);
         if (ctx->recv.start == NULL) {
-            goto update_recv_fail;
+            goto upsync_recv_fail;
         }
 
         ctx->recv.last = ctx->recv.pos = ctx->recv.start;
@@ -2130,7 +2130,7 @@ ngx_http_upsync_recv_handler(ngx_event_t *event)
             size = ctx->recv.end - ctx->recv.start;
             new_buf = ngx_pcalloc(pool, size * 2);
             if (new_buf == NULL) {
-                goto update_recv_fail;
+                goto upsync_recv_fail;
             }
             ngx_memcpy(new_buf, ctx->recv.start, size);
 
@@ -2163,7 +2163,7 @@ ngx_http_upsync_recv_handler(ngx_event_t *event)
             return;
         } else {
             c->error = 1;
-            goto update_recv_fail;
+            goto upsync_recv_fail;
         }
     }
 
@@ -2178,7 +2178,7 @@ ngx_http_upsync_recv_handler(ngx_event_t *event)
 
     return;
 
-update_recv_fail:
+upsync_recv_fail:
     ngx_log_error(NGX_LOG_ERR, event->log, 0,
                   "upsync_recv: recv error with upsync_server: %V", 
                   upsync_server->pc.name);
@@ -2197,7 +2197,7 @@ ngx_http_upsync_parse_init(void *data)
     upsync_type_conf = upsync_server->upscf->upsync_type_conf;
     ctx = &upsync_server->ctx;
 
-    if (upsync_type_conf->type == NGX_HTTP_UPSYNC_CONSUL) {
+    if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL) {
         if (ngx_http_parser_init() == NGX_ERROR) {
             return NGX_ERROR;
         }
@@ -2262,13 +2262,13 @@ ngx_http_upsync_dump_conf(ngx_http_upsync_server_t *upsync_server)
     b->last = ngx_snprintf(b->last,b->end - b->last, 
                            "\tkeepalive %d;\n", peers->number);
     b->last = ngx_snprintf(b->last,b->end - b->last, 
-                           "\n\tupsync %V:%d%V update_interval=%dms"
-                           " update_timeout=%dms type=%V;\n", 
+                           "\n\tupsync %V:%d%V upsync_interval=%dms"
+                           " upsync_timeout=%dms upsync_type=%V;\n", 
                            &upsync_server->upscf->upsync_host,
                            upsync_server->upscf->upsync_port,
-                           &upsync_server->upscf->update_send,
-                           upsync_server->upscf->update_interval,
-                           upsync_server->upscf->update_timeout,
+                           &upsync_server->upscf->upsync_send,
+                           upsync_server->upscf->upsync_interval,
+                           upsync_server->upscf->upsync_timeout,
                            &upsync_server->upscf->upsync_type_conf->name);
     b->last = ngx_snprintf(b->last,b->end - b->last, 
                            "\tupsync_conf_path %V;\n\n", 
@@ -2907,7 +2907,7 @@ ngx_http_upsync_clean_event(void *data)
         upsync_server->pc.connection = NULL;
     }
 
-    if (upsync_type_conf->type == NGX_HTTP_UPSYNC_CONSUL) {
+    if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL) {
 
         if (parser != NULL) {
             ngx_free(parser);
@@ -2920,14 +2920,14 @@ ngx_http_upsync_clean_event(void *data)
     }
     ctx->pool = NULL;
 
-    if (!upsync_server->update_ev.timer_set) {
-        tmp = upscf->update_interval;
+    if (!upsync_server->upsync_ev.timer_set) {
+        tmp = upscf->upsync_interval;
         t = ngx_random() % 1000 + tmp;
-        ngx_add_timer(&upsync_server->update_ev, t);
+        ngx_add_timer(&upsync_server->upsync_ev, t);
     }
 
-    if (upsync_server->update_timeout_ev.timer_set) {
-        ngx_del_timer(&upsync_server->update_timeout_ev);
+    if (upsync_server->upsync_timeout_ev.timer_set) {
+        ngx_del_timer(&upsync_server->upsync_timeout_ev);
     }
 
     return;
@@ -2971,21 +2971,21 @@ ngx_http_upsync_clear_all_events()
 
     for (i = 0; i < upsync_ctx->upstream_num; i++) {
 
-        if (upsync_server[i].update_ev.timer_set) {
-            ngx_del_timer(&upsync_server[i].update_ev);
+        if (upsync_server[i].upsync_ev.timer_set) {
+            ngx_del_timer(&upsync_server[i].upsync_ev);
         }
 
-        if (upsync_server[i].update_timeout_ev.timer_set) {
+        if (upsync_server[i].upsync_timeout_ev.timer_set) {
             c = upsync_server[i].pc.connection;
             if (c) {
                 ngx_close_connection(c);
                 upsync_server->pc.connection = NULL;
             }
-            ngx_del_timer(&upsync_server[i].update_timeout_ev);
+            ngx_del_timer(&upsync_server[i].upsync_timeout_ev);
         }
     }
 
-    if (upsync_type_conf->type == NGX_HTTP_UPSYNC_CONSUL) {
+    if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL) {
 
         if (parser != NULL) {
             ngx_free(parser);
@@ -3135,10 +3135,10 @@ ngx_http_client_send(ngx_http_conf_client *client,
     u_char request[ngx_pagesize];
     ngx_memzero(request, ngx_pagesize);
 
-    if (upsync_type_conf->type == NGX_HTTP_UPSYNC_CONSUL) {
+    if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL) {
         ngx_sprintf(request, "GET %V?recurse&index=%d HTTP/1.0\r\nHost: %V\r\n"
                     "Accept: */*\r\n\r\n", 
-                    &upscf->update_send, upsync_server->index, 
+                    &upscf->upsync_send, upsync_server->index, 
                     &upscf->conf_server.name);
     }
 

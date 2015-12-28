@@ -15,11 +15,12 @@ Table of Contents
 * [Synopsis](#synopsis)
 * [Description](#description)
 * [Directives](#functions)
-    * [consul](#consul)
-    * [update_interval](#update_interval)
-    * [update_timeout](#update_timeout)
-    * [strong_dependency](#strong_dependency)
-    * [upstream_conf_path](#upstream_conf_path)
+    * [upsync](#upsync)
+        * [upsync_interval](#upsync_interval)
+        * [upsync_timeout](#upsync_timeout)
+        * [upsync_type](#upsync_type)
+        * [strong_dependency](#strong_dependency)
+    * [upsync_conf_path](#upsync_conf_path)
     * [upstream_show](#upstream_show)
 * [Consul_interface](#consul_interface)
 * [TODO](#todo)
@@ -45,8 +46,8 @@ http {
         server 127.0.0.1:11111;
 
         # all backend server will pull from consul when startup and will delete fake server
-        consul 127.0.0.1:8500/v1/kv/upstreams/test update_timeout=6m update_interval=500ms strong_dependency=off;
-        upstream_conf_path /usr/local/nginx/conf/upstreams/upstream_test.conf;
+        upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
+        upsync_conf_path /usr/local/nginx/conf/upstreams/upstream_test.conf;
     }
 
     upstream bar {
@@ -75,7 +76,7 @@ http {
 Description
 ======
 
-This module provides a method to discover backend servers. Supporting dynamicly adding or deleting backend server through consul and dynamicly adjusting backend servers weight, module will timely pull new backend server list from consul to update nginx ip router. Nginx needn't reload. Having some advantages than others:
+This module provides a method to discover backend servers. Supporting dynamicly adding or deleting backend server through consul and dynamicly adjusting backend servers weight, module will timely pull new backend server list from consul to upsync nginx ip router. Nginx needn't reload. Having some advantages than others:
 
 * timely
 
@@ -87,7 +88,7 @@ This module provides a method to discover backend servers. Supporting dynamicly 
 
 * stability
 
-      Even if one pulling failed, it will pull next update_interval, so guaranteing backend server stably provides service. And support dumping the latest config to location, so even if consul hung up, and nginx can be reload anytime. 
+      Even if one pulling failed, it will pull next upsync_interval, so guaranteing backend server stably provides service. And support dumping the latest config to location, so even if consul hung up, and nginx can be reload anytime. 
 
 * health_check
 
@@ -99,9 +100,9 @@ Diretives
 consul
 -----------
 ```
-syntax: consul $consul.api.com:$port/v1/kv/upstreams/$upstream_name [update_interval=second/minutes] [update_timeout=second/minutes] [strong_dependency=off/on]
+syntax: consul $consul.api.com:$port/v1/kv/upstreams/$upstream_name [upsync_interval=second/minutes] [upsync_timeout=second/minutes] [strong_dependency=off/on]
 ```
-default: none, if parameters omitted, default parameters are update_interval=5s update_timeout=6m strong_dependency=off
+default: none, if parameters omitted, default parameters are upsync_interval=5s upsync_timeout=6m strong_dependency=off
 
 context: upstream
 
@@ -109,13 +110,17 @@ description: Pull upstream servers from consul.
 
 The parameters' meanings are:
 
-* update_interval
+* upsync_interval
 
     pulling servers from consul interval time.
 
-* update_timeout
+* upsync_timeout
 
     pulling servers from consul request timeout.
+
+* upsync_type
+
+    pulling servers from conf server type.
 
 * strong_dependency
 
@@ -123,9 +128,9 @@ The parameters' meanings are:
 
 [Back to TOC](#table-of-contents)       
 
-upstream_conf_path
+upsync_conf_path
 -----------
-`syntax: upstream_conf_path $path`
+`syntax: upsync_conf_path $path`
 
 default: /usr/local/nginx/conf/upstreams/upstream_$host.conf
 
