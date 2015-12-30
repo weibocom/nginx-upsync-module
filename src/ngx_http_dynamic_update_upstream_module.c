@@ -201,6 +201,8 @@ extern ngx_uint_t ngx_http_upstream_check_add_dynamic_peer(ngx_pool_t *pool,
         ngx_http_upstream_srv_conf_t *us, ngx_addr_t *peer_addr);
 extern void ngx_http_upstream_check_delete_dynamic_peer(ngx_str_t *name,
         ngx_addr_t *peer_addr);
+
+static u_char *ngx_print_escape(u_char *dst, u_char *src, size_t len);
 #endif
 
 static char *ngx_http_dynamic_update_upstream_consul_server(ngx_conf_t *cf, 
@@ -283,8 +285,6 @@ static void ngx_http_client_destroy(ngx_http_conf_client *client);
 static ngx_int_t ngx_http_client_send(ngx_http_conf_client *client, 
         ngx_http_dynamic_update_upstream_server_t *conf_server);
 static ngx_int_t ngx_http_client_recv(ngx_http_conf_client *client, char **data, int size);
-
-static u_char *ngx_print_escape(u_char *dst, u_char *src, size_t len);
 
 static char *ngx_http_dynamic_update_upstream_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t ngx_http_dynamic_update_upstream_show(ngx_http_request_t *r);
@@ -2601,6 +2601,7 @@ ngx_http_dynamic_update_upstream_del_delay_delete(ngx_event_t *event)
 }
 
 
+#if (NGX_HTTP_UPSTREAM_CHECK)
 u_char *
 ngx_print_escape(u_char *dst, u_char *src, size_t len)
 {
@@ -2633,6 +2634,7 @@ ngx_print_escape(u_char *dst, u_char *src, size_t len)
 
     return dst;
 }
+#endif
 
 
 size_t
