@@ -1,7 +1,11 @@
 Name
 ====
 
-nginx-upsync-module - Nginx C module, nginx + consul server discovery service, dynamically update upstream backend servers, dynamically adjust backend servers' weight, needn't reload nginx.
+nginx-upsync-module - Nginx C module, syncing upstreams from consul or others, dynamiclly adjusting backend servers weight, needn't reload nginx.
+
+It may not always be convenient to modify configuration files and restart NGINX. For example, if you are experiencing large amounts of traffic and high load, restarting NGINX and reloading the configuration at that point further increases load on the system and can temporarily degrade performance.
+
+The module can be more smoothly expansion and constriction, and will not influence the performance.
 
 Table of Contents
 =================
@@ -11,11 +15,12 @@ Table of Contents
 * [Synopsis](#synopsis)
 * [Description](#description)
 * [Directives](#functions)
-    * [consul](#consul)
-    * [update_interval](#update_interval)
-    * [update_timeout](#update_timeout)
-    * [strong_dependency](#strong_dependency)
-    * [upstream_conf_path](#upstream_conf_path)
+    * [upsync](#upsync)
+        * [upsync_interval](#upsync_interval)
+        * [upsync_timeout](#upsync_timeout)
+        * [upsync_type](#upsync_type)
+        * [strong_dependency](#strong_dependency)
+    * [upsync_dump_path](#upsync_dump_path)
     * [upstream_show](#upstream_show)
 * [Consul_interface](#consul_interface)
 * [TODO](#todo)
@@ -41,8 +46,8 @@ http {
         server 127.0.0.1:11111;
 
         # all backend server will pull from consul when startup and will delete fake server
-        consul 127.0.0.1:8500/v1/kv/upstreams/test update_timeout=6m update_interval=500ms strong_dependency=off;
-        upstream_conf_path /usr/local/nginx/conf/upstreams/upstream_test.conf;
+        upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
+        upsync_dump_path /usr/local/nginx/conf/upstreams/upstream_test.conf;
     }
 
     upstream bar {
@@ -71,7 +76,7 @@ http {
 Description
 ======
 
-This module provides a method to discover backend servers. Supporting dynamically adding or deleting backend server through consul and dynamically adjusting backend servers weight, module will timely pull new backend server list from consul to update nginx ip router. Nginx needn't reload. Having some advantages than others:
+This module provides a method to discover backend servers. Supporting dynamicly adding or deleting backend server through consul and dynamicly adjusting backend servers weight, module will timely pull new backend server list from consul to upsync nginx ip router. Nginx needn't reload. Having some advantages than others:
 
 * timely
 
@@ -83,21 +88,21 @@ This module provides a method to discover backend servers. Supporting dynamicall
 
 * stability
 
-      Even if one pulling failed, it will pull next update_interval, so guaranteing backend server stably provides service. And support dumping the latest config to location, so even if consul hung up, and nginx can be reload anytime. 
+      Even if one pulling failed, it will pull next upsync_interval, so guaranteing backend server stably provides service. And support dumping the latest config to location, so even if consul hung up, and nginx can be reload anytime. 
 
 * health_check
 
       nginx-upsync-module support adding or deleting servers health check, needing nginx_upstream_check_module. Recommending nginx-upsync-module + nginx_upstream_check_module.
 
-Directives
+Diretives
 ======
 
 consul
 -----------
 ```
-syntax: consul $consul.api.com:$port/v1/kv/upstreams/$upstream_name [update_interval=second/minutes] [update_timeout=second/minutes] [strong_dependency=off/on]
+syntax: consul $consul.api.com:$port/v1/kv/upstreams/$upstream_name [upsync_interval=second/minutes] [upsync_timeout=second/minutes] [strong_dependency=off/on]
 ```
-default: none, if parameters omitted, default parameters are update_interval=5s update_timeout=6m strong_dependency=off
+default: none, if parameters omitted, default parameters are upsync_interval=5s upsync_timeout=6m strong_dependency=off
 
 context: upstream
 
@@ -105,13 +110,17 @@ description: Pull upstream servers from consul.
 
 The parameters' meanings are:
 
-* update_interval
+* upsync_interval
 
     pulling servers from consul interval time.
 
-* update_timeout
+* upsync_timeout
 
     pulling servers from consul request timeout.
+
+* upsync_type
+
+    pulling servers from conf server type.
 
 * strong_dependency
 
@@ -119,15 +128,15 @@ The parameters' meanings are:
 
 [Back to TOC](#table-of-contents)       
 
-upstream_conf_path
+upsync_dump_path
 -----------
-`syntax: upstream_conf_path $path`
+`syntax: upsync_dump_path $path`
 
 default: /usr/local/nginx/conf/upstreams/upstream_$host.conf
 
 context: upstream
 
-description: dump the upstream conf to the $path.
+description: dump the upstream backends to the $path.
 
 [Back to TOC](#table-of-contents)       
 
@@ -181,6 +190,8 @@ or
 * adjust-weight
 ```
     curl -X PUT -d "{\"weight\":2}" http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
+or
+    curl -X PUT -d '{"weight":2}' http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
 ```
 
 * check
@@ -194,6 +205,8 @@ TODO
 ====
 
 * support least_conn load_balancing
+
+* support etcd, zookeeper and so on
 
 [Back to TOC](#table-of-contents)
 
@@ -211,7 +224,7 @@ Compatible with Nginx-1.9.x.
 Installation
 ============
 
-This module can be used independently, and can be downloaded from [Github](https://github.com/weibocom/nginx-upsync-module.git).
+This module can be used independently, can be download[Github](https://github.com/weibocom/nginx-upsync-module.git).
 
 Grab the nginx source code from [nginx.org](http://nginx.org/), for example, the version 1.8.0 (see nginx compatibility), and then build the source with this module:
 
@@ -268,7 +281,7 @@ see also
 ========
 * the nginx_upstream_check_module: https://github.com/alibaba/tengine/blob/master/src/http/ngx_http_upstream_check_module.c
 * the nginx_upstream_check_module patch: https://github.com/yaoweibin/nginx_upstream_check_module
-* or if you want to use check_module, you can based on https://github.com/xiaokai-wang/nginx_upstream_check_module
+* or based on https://github.com/xiaokai-wang/nginx_upstream_check_module
 
 [back to toc](#table-of-contents)
 
