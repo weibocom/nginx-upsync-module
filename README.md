@@ -20,7 +20,7 @@ Table of Contents
         * [upsync_timeout](#upsync_timeout)
         * [upsync_type](#upsync_type)
         * [strong_dependency](#strong_dependency)
-    * [upsync_conf_path](#upsync_conf_path)
+    * [upsync_dump_path](#upsync_dump_path)
     * [upstream_show](#upstream_show)
 * [Consul_interface](#consul_interface)
 * [TODO](#todo)
@@ -47,7 +47,7 @@ http {
 
         # all backend server will pull from consul when startup and will delete fake server
         upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
-        upsync_conf_path /usr/local/nginx/conf/upstreams/upstream_test.conf;
+        upsync_dump_path /usr/local/nginx/conf/upstreams/upstream_test.conf;
     }
 
     upstream bar {
@@ -128,15 +128,15 @@ The parameters' meanings are:
 
 [Back to TOC](#table-of-contents)       
 
-upsync_conf_path
+upsync_dump_path
 -----------
-`syntax: upsync_conf_path $path`
+`syntax: upsync_dump_path $path`
 
 default: /usr/local/nginx/conf/upstreams/upstream_$host.conf
 
 context: upstream
 
-description: dump the upstream conf to the $path.
+description: dump the upstream backends to the $path.
 
 [Back to TOC](#table-of-contents)       
 
