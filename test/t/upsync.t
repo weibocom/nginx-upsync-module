@@ -13,7 +13,7 @@ use Test::Nginx;
 
 my $NGINX = defined $ENV{TEST_NGINX_BINARY} ? $ENV{TEST_NGINX_BINARY}
 : '../../nginx/objs/nginx';
-my $t = Test::Nginx->new()->plan(30);
+my $t = Test::Nginx->new()->plan(40);
 
 sub mhttp_get($;$;$;%) {
     my ($url, $host, $port, %extra) = @_;
@@ -23,7 +23,6 @@ Host: $host
 
 EOF
 }
-
 
 sub mhttp_put($;$;$;%) {
     my ($url, $body, $port, %extra) = @_;
@@ -36,7 +35,6 @@ Content-Length: $len
 $body
 EOF
 }
-
 
 sub mhttp_delete($;$;%) {
     my ($url, $port, %extra) = @_;
@@ -115,16 +113,13 @@ events {
 http {
 
     upstream test {
-        upsync 127.0.0.1/v1/kv/upstreams/test upsync_interval=50ms upsync_timeout=6m upsync_type=consul;
+        upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_interval=50ms upsync_timeout=6m upsync_type=consul;
         upsync_dump_path /tmp/servers_test.conf;
 
         server 127.0.0.1:8088 weight=10 max_fails=3 fail_timeout=10;
     }
 
     upstream backend {
-        upsync 127.0.0.1/v1/kv/upstreams/backend upsync_interval=50ms upsync_timeout=6m upsync_type=consul;
-        upsync_dump_path /tmp/servers_backend.conf;
-
         server 127.0.0.1:8090 weight=10 max_fails=3 fail_timeout=10;
     }
 
@@ -148,21 +143,32 @@ mrun($t);
 my $rep;
 my $dump;
 
+like(mhttp_delete('/v1/kv/upstreams/test/127.0.0.1:8089', 8500), qr/true/m, '2015-12-27 18:21:37');
+like(mhttp_delete('/v1/kv/upstreams/test/127.0.0.1:8088', 8500), qr/true/m, '2015-12-27 18:20:37');
+
+sleep(1);
+
+like(mhttp_delete('/v1/kv/upstreams/test?recurse', 8500), qr/true/m, '2015-12-27 18:22:37');
+
+like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8089', '', 8500), qr/true/m, '2015-12-27 17:50:35');
+
 $rep = qr/
 Upstream name: test;Backend server counts: 1
-        server 127.0.0.1:8088 weight=10 max_fails=3 fail_timeout=10;
+        server 127.0.0.1:8089 weight=1 max_fails=2 fail_timeout=10;
 /m;
+
+sleep(1);
 
 like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 17:43:30');
 
 ###############################################################################
 
-like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8089', '', 8500), qr/true/m, '2015-12-27 17:50:35');
+like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":10,"max_fails":3,"fail_timeout":10}', 8500), qr/true/m, '2015-12-27 17:42:35');
 
 $rep = qr/
 Upstream name: test;Backend server counts: 2
-        server 127.0.0.1:8088 weight=10 max_fails=3 fail_timeout=10;
         server 127.0.0.1:8089 weight=1 max_fails=2 fail_timeout=10;
+        server 127.0.0.1:8088 weight=10 max_fails=3 fail_timeout=10;
 /m;
 
 sleep(1);
@@ -213,7 +219,19 @@ like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 18:3
 
 like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":20,"max_fails":0,"fail_timeout":30}', 8500), qr/true/m, '2015-12-27 18:35:35');
 
-like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":40}', 8500), qr/true/m, '2015-12-27 18:39:35');
+$rep = qr/
+Upstream name: test;Backend server counts: 2
+        server 127.0.0.1:8089 weight=20 max_fails=0 fail_timeout=30;
+        server 127.0.0.1:8088 weight=20 max_fails=0 fail_timeout=30;
+/m;
+
+sleep(1);
+
+like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 18:41:40');
+
+#######################
+
+like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":40}', 8500), qr/true/m, '2015-12-27 18:42:35');
 
 $rep = qr/
 Upstream name: test;Backend server counts: 2
@@ -223,27 +241,25 @@ Upstream name: test;Backend server counts: 2
 
 sleep(1);
 
-like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 18:41:40');
+like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 18:43:40');
 
 #######################
 
-like(mhttp_delete('/v1/kv/upstreams/test?recurse', 8500), qr/true/m, '2015-12-27 18:24:37');
+like(mhttp_delete('/v1/kv/upstreams/test?recurse', 8500), qr/true/m, '2015-12-27 18:22:33');
 
 sleep(1);
 
-like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 18:43:51');
+like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 18:44:51');
 
 #######################
 
-$dump = qr/
-server 127.0.0.1:8089 weight=20 max_fails=0 fail_timeout=30;
-server 127.0.0.1:8088 weight=40 max_fails=0 fail_timeout=30;
+$dump = qr/server 127.0.0.1:8089 weight=20 max_fails=0 fail_timeout=30s;
+server 127.0.0.1:8088 weight=40 max_fails=0 fail_timeout=30s;
 /m;
 
 like(get_dump_content('/tmp/servers_test.conf'), $dump, '2015-12-27 18:51:35');
 
 $t->stop();
-unlink("/tmp/dyupssocket");
 
 ##############################################################################
 
@@ -262,7 +278,7 @@ events {
 http {
 
     upstream test {
-        upsync 127.0.0.1/v1/kv/upstreams/test upsync_interval=50ms upsync_timeout=6m upsync_type=consul;
+        upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_interval=50ms upsync_timeout=6m upsync_type=consul;
         upsync_dump_path /tmp/servers_test.conf;
 
         server 127.0.0.1:8088 weight=10 max_fails=3 fail_timeout=10;
@@ -290,21 +306,32 @@ mrun($t);
 
 ###############################################################################
 
+like(mhttp_delete('/v1/kv/upstreams/test/127.0.0.1:8088', 8500), qr/true/m, '2015-12-27 19:20:37');
+like(mhttp_delete('/v1/kv/upstreams/test/127.0.0.1:8089', 8500), qr/true/m, '2015-12-27 19:21:37');
+
+sleep(1);
+
+like(mhttp_delete('/v1/kv/upstreams/test?recurse', 8500), qr/true/m, '2015-12-27 19:49:37');
+
+like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8089', '', 8500), qr/true/m, '2015-12-27 19:25:35');
+
 $rep = qr/
 Upstream name: test;Backend server counts: 1
-        server 127.0.0.1:8088 weight=10 max_fails=3 fail_timeout=10;
+        server 127.0.0.1:8089 weight=1 max_fails=2 fail_timeout=10;
 /m;
+
+sleep(1);
 
 like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 19:20:30');
 
 ###############################################################################
 
-like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8089', '', 8500), qr/true/m, '2015-12-27 19:25:35');
+like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":10,"max_fails":3,"fail_timeout":10}', 8500), qr/true/m, '2015-12-27 17:50:35');
 
 $rep = qr/
 Upstream name: test;Backend server counts: 2
-        server 127.0.0.1:8088 weight=10 max_fails=3 fail_timeout=10;
         server 127.0.0.1:8089 weight=1 max_fails=2 fail_timeout=10;
+        server 127.0.0.1:8088 weight=10 max_fails=3 fail_timeout=10;
 /m;
 
 sleep(1);
@@ -342,7 +369,7 @@ like(mhttp_delete('/v1/kv/upstreams/test/127.0.0.1:8088', 8500), qr/true/m, '201
 
 $rep = qr/
 Upstream name: test;Backend server counts: 1
-        server 127.0.0.1:8090 weight=20 max_fails=0 fail_timeout=30;
+        server 127.0.0.1:8089 weight=20 max_fails=0 fail_timeout=30;
 /m;
 
 sleep(1);
@@ -352,7 +379,20 @@ like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 19:3
 ###########################
 
 like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":20,"max_fails":0,"fail_timeout":30}', 8500), qr/true/m, '2015-12-27 19:39:35');
-like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":40}', 8500), qr/true/m, '2015-12-27 19:44:35');
+
+$rep = qr/
+Upstream name: test;Backend server counts: 2
+        server 127.0.0.1:8089 weight=20 max_fails=0 fail_timeout=30;
+        server 127.0.0.1:8088 weight=20 max_fails=0 fail_timeout=30;
+/m;
+
+sleep(1);
+
+like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 19:47:40');
+
+###########################
+
+like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":40}', 8500), qr/true/m, '2015-12-27 19:48:35');
 
 $rep = qr/
 Upstream name: test;Backend server counts: 2
@@ -362,11 +402,11 @@ Upstream name: test;Backend server counts: 2
 
 sleep(1);
 
-like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 19:47:40');
+like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 19:49:40');
 
 ###########################
 
-like(mhttp_delete('/v1/kv/upstreams/test?recurse', 8500), qr/true/m, '2015-12-27 19:49:37');
+like(mhttp_delete('/v1/kv/upstreams/test?recurse', 8500), qr/true/m, '2015-12-27 19:50:37');
 
 sleep(1);
 
@@ -374,15 +414,13 @@ like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 19:5
 
 ##########################
 
-$dump = qr/
-server 127.0.0.1:8089 weight=20 max_fails=0 fail_timeout=30;
-server 127.0.0.1:8088 weight=40 max_fails=0 fail_timeout=30;
+$dump = qr/server 127.0.0.1:8089 weight=20 max_fails=0 fail_timeout=30s;
+server 127.0.0.1:8088 weight=40 max_fails=0 fail_timeout=30s;
 /m;
 
 like(get_dump_content('/tmp/servers_test.conf'), $dump, '2015-12-27 19:53:35');
 
 $t->stop();
-unlink("/tmp/dyupssocket");
 
 ###############################################################################
 
