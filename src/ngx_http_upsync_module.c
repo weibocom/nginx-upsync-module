@@ -367,8 +367,8 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             upsync_timeout = ngx_parse_time(&s, 0);
             if (upsync_timeout == (time_t) NGX_ERROR) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                   "upsync_server: upsync_timeout invalid: "
-                                   "\"%V\"", &value[i]);
+                                   "upsync_server: invalid parameter:\"%V\"", 
+                                   &value[i]);
                 goto invalid;
             }
 
@@ -383,8 +383,8 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             upsync_interval = ngx_parse_time(&s, 0);
             if (upsync_interval == (time_t) NGX_ERROR) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                   "upsync_server: upsync_interval invalid: "
-                                   "\"%V\"", &value[i]);
+                                   "upsync_server: invalid parameter: \"%V\"", 
+                                   &value[i]);
                 goto invalid;
             }
 
@@ -417,8 +417,7 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             upscf->upsync_type_conf = ngx_http_get_upsync_type_conf(&s);
             if (upscf->upsync_type_conf == NULL) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                   "upsync_server: upsync_type not exist: "
-                                   "\"%V\"", &value[i]);
+                                   "upsync_server: upsync_type invalid para");
                 goto invalid;
             }
 
@@ -436,6 +435,11 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
     if (strong_dependency != 0) {
         upscf->strong_dependency = strong_dependency;
+    }
+    if (upscf->upsync_type_conf == NGX_CONF_UNSET_PTR) {
+         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                  "upsync_server: upsync_type cannt be null");
+          goto invalid;
     }
 
     ngx_memzero(&u, sizeof(ngx_url_t));
