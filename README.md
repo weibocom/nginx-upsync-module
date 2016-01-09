@@ -132,7 +132,7 @@ upsync_dump_path
 -----------
 `syntax: upsync_dump_path $path`
 
-default: /usr/local/nginx/conf/upstreams/upstream_$host.conf
+default: /tmp/servers_$host.conf
 
 context: upstream
 

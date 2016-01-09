@@ -1572,11 +1572,11 @@ ngx_http_upsync_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_uint_t num)
 
     if (upscf->upsync_dump_path.len == NGX_CONF_UNSET_SIZE) {
         buf = ngx_pcalloc(cf->pool, 
-                          ngx_strlen("/tmp/upstream_.conf") + uscf->host.len + 1);
-        ngx_sprintf(buf, "/tmp/upstream_%V.conf", &uscf->host);
+                          ngx_strlen("/tmp/servers_.conf") + uscf->host.len + 1);
+        ngx_sprintf(buf, "/tmp/servers_%V.conf", &uscf->host);
 
         upscf->upsync_dump_path.data = buf;
-        upscf->upsync_dump_path.len = ngx_strlen("/tmp/upstream_.conf")
+        upscf->upsync_dump_path.len = ngx_strlen("/tmp/servers_.conf")
                                       + uscf->host.len;
     }
 
