@@ -293,7 +293,7 @@ see also
 source dependency
 ========
 * Cjson: https://github.com/kbranigan/cJSON
-* http-parser: https://github.com/joyent/http-parser
+* http-parser: https://github.com/nodejs/http-parser
 
 [back to toc](#table-of-contents)
 
