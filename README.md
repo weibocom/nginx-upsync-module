@@ -1,7 +1,7 @@
 Name
 ====
 
-nginx-upsync-module - Nginx C module, syncing upstreams from consul or others, dynamiclly adjusting backend servers weight, needn't reload nginx.
+nginx-upsync-module - Nginx C module, sync upstreams from consul or others, dynamiclly modify backend-servers attribute(weight, max_fails,...), needn't reload nginx.
 
 It may not always be convenient to modify configuration files and restart NGINX. For example, if you are experiencing large amounts of traffic and high load, restarting NGINX and reloading the configuration at that point further increases load on the system and can temporarily degrade performance.
 
@@ -189,9 +189,16 @@ or
 
 * adjust-weight
 ```
-    curl -X PUT -d "{\"weight\":2}" http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
+    curl -X PUT -d "{\"weight\":2, \"max_fails\":2, \"fail_timeout\":10}" http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
 or
-    curl -X PUT -d '{"weight":2}' http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
+    curl -X PUT -d '{"weight":2, "max_fails":2, "fail_timeout":10}' http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
+```
+
+* mark server-down
+```
+    curl -X PUT -d "{\"weight\":2, \"max_fails\":2, \"fail_timeout\":10, \"down\":1}" http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
+or
+    curl -X PUT -d '{"weight":2, "max_fails":2, "fail_timeout":10, "down":1}' http://$consul_ip:$port/v1/kv/$dir1/$upstream_name/$backend_ip:$backend_port
 ```
 
 * check
@@ -203,8 +210,6 @@ or
 
 TODO
 ====
-
-* support least_conn load_balancing
 
 * support etcd, zookeeper and so on
 
