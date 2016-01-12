@@ -1673,7 +1673,7 @@ static ngx_int_t
 ngx_http_upsync_init_process(ngx_cycle_t *cycle)
 {
     char                                *conf_value = NULL;
-    ngx_int_t                            status;
+    ngx_int_t                            status = 0;
     ngx_uint_t                           i, j;
     ngx_pool_t                          *pool;
     ngx_upsync_conf_t                   *upsync_type_conf;
