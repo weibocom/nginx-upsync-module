@@ -97,16 +97,16 @@ This module provides a method to discover backend servers. Supporting dynamicly 
 Diretives
 ======
 
-consul
+upsync
 -----------
 ```
-syntax: consul $consul.api.com:$port/v1/kv/upstreams/$upstream_name [upsync_interval=second/minutes] [upsync_timeout=second/minutes] [strong_dependency=off/on]
+syntax: upsync $consul.api.com:$port/v1/kv/upstreams/$upstream_name [upsync_type=consul] [upsync_interval=second/minutes] [upsync_timeout=second/minutes] [strong_dependency=off/on]
 ```
 default: none, if parameters omitted, default parameters are upsync_interval=5s upsync_timeout=6m strong_dependency=off
 
 context: upstream
 
-description: Pull upstream servers from consul.
+description: Pull upstream servers from consul/etcd... .
 
 The parameters' meanings are:
 
