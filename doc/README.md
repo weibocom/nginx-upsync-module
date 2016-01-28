@@ -51,11 +51,11 @@ tengine团队开发了自己的模块，该模块可以动态的解析upstream c
 consul-template与consul作为一个组合，consul作为db，consul-template部署于nginx server上，consul-template定时向consul发起请求，发现value值有变化，便会更新本地的nginx相关配置文件，发起reload命令。但是在流量比较重的情况下，发起reload会对性能造成影响。reload的同时会引发新的work进程的创建，在一段时间内新旧work进程会同时存在，并且旧的work进程会频繁的遍历connection链表，查看是否请求已经处理结束，若结束便退出进程；另reload也会造成nginx与client和backend的长链接关闭，新的work进程需要创建新的链接。
 
 reload造成的性能影响：
-![consul-template-qps](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/consul-template-reload-qps.png)
+![consul-template-reload-qps](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/consul-template-reload-qps.png)
 
 在27s的时候进行的reload，nginx的请求处理能力会下降（注：nginx对于握手成功的请求不会丢失）。
 
-![consul-template-cost](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/consul-template-reload-cost.png)
+![consul-template-reload-cost](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/consul-template-reload-cost.png)
 
 同时发现reload的同时耗时会发生波动，甚至有50%+的耗时增加。
 
@@ -67,14 +67,14 @@ reload造成的性能影响：
 #####http_api方案
 
 此方案提供nginx http api，添加／删除server时，通过调用api向nginx发出请求，操作简单、便利。架构图如下：
-![http-api architecture](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/nginx-http-api-arch.png)
+![nginx-http-api-arch](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/nginx-http-api-arch.png)
 
 http api除了操作简单、方便，而且实时性好；缺点是分布式一致性难于保证，如果某一条注册失败，便会造成服务配置的不一致，容错复杂；另一个就是如果扩容nginx服务器，需要重新注册server（可参考nginx-upconf-module，正在完善）。
 
 #####upsync方案
 
 upsync方式引入了第三方组件，作为nginx的upstream server配置的db，架构图如下：
-![upsync architecture](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/nginx-upsync-arch.png)
+![nginx-upsync-arch](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/nginx-upsync-arch.png)
 
 所有的后端server列表存于consul，便于nginx横向扩展，实时拉取，容错性更好，而且可以结合db的KV服务，提高实时性。
 
@@ -89,7 +89,7 @@ upsync方式引入了第三方组件，作为nginx的upstream server配置的db�
 ------------
 
 consul 作为nginx的db，利用consul的KV服务，每个nginx work进程独立的去拉取各个upstream的配置，并更新各自的路由。流程图如下：
-![upsync follow](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/list_update.bmp)
+![list_update](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/list_update.bmp)
 
 每个work进程定时的去consul拉取相应upstream的配置，定时的间隔可配；其中consul提供了time_wait机制，利用value的版本号，若consul发现对应upstream的值没有变化，便会hang住这个请求5分钟（默认），在这五分钟内对此upstream的任何操作，都会立刻返回给nginx，对相应路由进行更新。对于拉取的间隔可以结合场景的需要进行配置，基本可以实现所要求的实时性。upstream变更后，除了更新nginx的缓存路由信息，还会把本upstream的后端server列表dump到本地，保持本地server信息与consul的一致性。
 
@@ -103,7 +103,7 @@ consul 作为nginx的db，利用consul的KV服务，每个nginx work进程独立
 nginx的后端列表更新依赖于consul，但是不强依赖于它，表现在：一是即使中途consul意外挂了，也不会影响nginx的服务，nginx会沿用最后一次更新的服务列表继续提供服务；二是若consul重新启动提供服务，这个时候nginx会继续去consul探测，这个时候consul的后端服务列表发生了变化，也会及时的更新到nginx。
 
 另一方面，work进程每次更新都会把后端列表dump到本地，目的是降低对consul的依赖性，即使在consul不可用之时，也可以reload nginx。nginx 启动流程图如下：
-![start follow](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/start_fllow.bmp)
+![start_fllow](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/start_fllow.bmp)
 
 nginx启动时，master进程首先会解析本地的配置文件，解析完成功，接着进行一系列的初始化，之后便会开始work进程的初始化。work初始化时会去consul拉取配置，进行work进程upstream路由信息的更新，若拉取成功，便直接更新，若拉取失败，便会打开配置的dump后端列表的文件，提取之前dump下来的server信息，进行upstream路由的更新，之后便开始正常的提供服务。
 
@@ -145,10 +145,10 @@ work进程数：8个；
 本模块首先应用于平台的remind业务，qps量约为7000+左右。下面是对本业务灰度的基本数据：
 
 请求量变化：
-| |0|1|2|3|4|5|6|7|8|9|10|11|12|
-|---|---|---|---|---|---|---|---|---|---|---|---|
-|reload|7723|7583|7833|7680|7809|7682|6924|7081|7207|7232|7486|7571|7465|
-|upsync|7782|7705|7772|7810|7899|7978|7858|7934|7994|7731|7824|7648|7888|
+|   | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| reload | 7723 | 7583 | 7833 | 7680 | 7809 | 7682 | 6924 | 7081 | 7207 | 7232 | 7486 | 7571 | 7465 |
+| upsync | 7782 | 7705| 7772 | 7810 | 7899 | 7978 | 7858 | 7934 | 7994 | 7731 | 7824 | 7648 | 7888 |
 
 ![reload vs upsync](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/upsync-vs-reload-qps.png)
 
@@ -158,7 +158,7 @@ work进程数：8个；
 |reload|12.102|15.108|11.443|9.426|10.178|10.605|15.253|14.315|14.762|8.392|14.385|32.335|15.277|
 |upsync|9.586|11.963|8.694|9.676|10.616|10.335|9.766|9.406|8.943|10.971|8.080|9.185|12.055|
 
-![reload vs upsync](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/upsync-vs-reload-cost.png)
+![upsync-vs-reload-cost](https://github.com/weibocom/nginx-upsync-module/tree/master/doc/images/upsync-vs-reload-cost.png)
 
 从数据可以得出，reload操作时造成nginx的请求处理能力下降约10%，nginx本身的耗时会增长50%+。若是频繁的扩容缩容，reload操作造成的开销会更加明显。
 
