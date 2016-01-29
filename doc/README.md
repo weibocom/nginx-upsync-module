@@ -51,11 +51,11 @@ consul-template与consul作为一个组合，consul作为db，consul-template部
 
 reload造成的性能影响：
 
-![consul-template-reload-qps](https://github.com/weibocom/nginx-upsync-module/raw/master/doc/images/consul-template-reload-qps.png)
+<img src="https://github.com/weibocom/nginx-upsync-module/raw/master/doc/images/consul-template-reload-qps.png" alt="consul-template-reload-qps" height="50%" width="60%">
 ```
 图示：reload时nginx的请求处理能力会下降（注：nginx对于握手成功的请求不会丢失）
 ```
-![consul-template-reload-cost](https://github.com/weibocom/nginx-upsync-module/raw/master/doc/images/consul-template-reload-cost.png)
+<img src="https://github.com/weibocom/nginx-upsync-module/raw/master/doc/images/consul-template-reload-cost.png" alt="consul-template-reload-cost" height="50%" width="60%">
 ```
 图示：reload时耗时会发生波动，波动幅度甚至达50%+
 ```
@@ -69,7 +69,7 @@ reload造成的性能影响：
 
 此方案提供nginx http api，添加／删除server时，通过调用api向nginx发出请求，操作简单、便利。架构图如下：
 
-![nginx-http-api-arch](https://github.com/weibocom/nginx-upsync-module/raw/master/doc/images/nginx-http-api-arch.png)
+<img src="https://github.com/weibocom/nginx-upsync-module/raw/master/doc/images/nginx-http-api-arch.png" alt="nginx-http-api-arch" height="50%" width="40%">
 
 http api除了操作简单、方便，而且实时性好；缺点是分布式一致性难于保证，如果某一条注册失败，便会造成服务配置的不一致，容错复杂；另一个就是如果扩容nginx服务器，需要重新注册server（可参考nginx-upconf-module，正在完善）。
 
@@ -77,7 +77,7 @@ http api除了操作简单、方便，而且实时性好；缺点是分布式一
 
 upsync方式引入了第三方组件，作为nginx的upstream server配置的db，架构图如下：
 
-![nginx-upsync-arch](https://github.com/weibocom/nginx-upsync-module/raw/master/doc/images/nginx-upsync-arch.png)
+<img src="https://github.com/weibocom/nginx-upsync-module/raw/master/doc/images/nginx-upsync-arch.png" alt="nginx-upsync-arch" height="80%" width="60%">
 
 所有的后端server列表存于consul，便于nginx横向扩展，实时拉取，容错性更好，而且可以结合db的KV服务，提高实时性。
 
@@ -157,7 +157,7 @@ work进程数：8个；
 | reload | 7723 | 7583 | 7833 | 7680 | 7809 | 7682 | 6924 | 7081 | 7207 | 7232 | 7486 | 7571 | 7465 |
 | upsync | 7782 | 7705| 7772 | 7810 | 7899 | 7978 | 7858 | 7934 | 7994 | 7731 | 7824 | 7648 | 7888 |
 
-![reload vs upsync](https://github.com/weibocom/nginx-upsync-module/raw/master/doc/images/upsync-vs-reload-qps.png)
+<img src="https://github.com/weibocom/nginx-upsync-module/raw/master/doc/images/upsync-vs-reload-qps.png" alt="upsync-vs-reload-qps" height="50%" width="60%">
 
 #####平均耗时变化：
 
@@ -166,7 +166,7 @@ work进程数：8个；
 | reload | 12.102 | 15.108 | 11.443 | 9.426 | 10.178 | 10.605 | 15.253 | 14.315 | 14.762 | 8.392 | 14.385 | 32.335 | 15.277 |
 | upsync | 9.586 | 11.963 | 8.694 | 9.676 | 10.616 | 10.335 | 9.766 | 9.406 | 8.943 | 10.971 | 8.080 | 9.185 | 12.055 |
 
-![upsync-vs-reload-cost](https://github.com/weibocom/nginx-upsync-module/raw/master/doc/images/upsync-vs-reload-cost.png)
+<img src="https://github.com/weibocom/nginx-upsync-module/raw/master/doc/images/upsync-vs-reload-cost.png" alt="upsync-vs-reload-cost" height="50%" width="60%">
 
 从数据可以得出，reload操作时造成nginx的请求处理能力下降约10%，nginx本身的耗时会增长50%+。若是频繁的扩容缩容，reload操作造成的开销会更加明显。
 
