@@ -222,8 +222,6 @@ The module was developed base on nginx1.8.0.
 
 Compatible with Nginx-1.8.x.
 
-Compatible with Nginx-1.9.x.
-
 [Back to TOC](#table-of-contents)
 
 Installation

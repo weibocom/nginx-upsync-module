@@ -1218,6 +1218,7 @@ ngx_http_upsync_parse_json(void *data)
             upstream_conf->backup = (ngx_uint_t)backup;
         }
 
+        max_fails=2, backup=0, down=0;
     }
     cJSON_Delete(root);
 
@@ -1981,6 +1982,13 @@ ngx_http_upsync_parse_dump_file(ngx_http_upsync_server_t *upsync_server)
                 continue;
             }
 
+            if (ngx_strncmp(prev, "down", 4) == 0) {
+                upstream_conf->down = 1;
+
+                prev += 4;
+                continue;
+            }
+
             prev++;
         }
     }
@@ -2396,14 +2404,20 @@ ngx_http_upsync_dump_server(ngx_http_upsync_server_t *upsync_server)
     }
 
     for (i = 0; i < peers->number; i++) {
-        b->last = ngx_snprintf(b->last,b->end - b->last, 
+        b->last = ngx_snprintf(b->last, b->end - b->last, 
                                "server %V", &peers->peer[i].name);
-        b->last = ngx_snprintf(b->last,b->end - b->last, 
+        b->last = ngx_snprintf(b->last, b->end - b->last, 
                                " weight=%d", peers->peer[i].weight);
-        b->last = ngx_snprintf(b->last,b->end - b->last, 
+        b->last = ngx_snprintf(b->last, b->end - b->last, 
                                " max_fails=%d", peers->peer[i].max_fails);
-        b->last = ngx_snprintf(b->last,b->end - b->last, 
-                               " fail_timeout=%ds;\n", peers->peer[i].fail_timeout);
+        b->last = ngx_snprintf(b->last, b->end - b->last, 
+                               " fail_timeout=%ds", peers->peer[i].fail_timeout);
+
+        if (peers->peer[i].down) {
+            b->last = ngx_snprintf(b->last, b->end - b->last, " down");
+        }
+
+        b->last = ngx_snprintf(b->last, b->end - b->last, ";\n");
     }
 
     upscf = upsync_server->upscf;
@@ -3363,7 +3377,13 @@ ngx_http_upsync_show(ngx_http_request_t *r)
         b->last = ngx_snprintf(b->last,b->end - b->last, 
                                " max_fails=%d", peers->peer[i].max_fails);
         b->last = ngx_snprintf(b->last,b->end - b->last, 
-                               " fail_timeout=%d;\n", peers->peer[i].fail_timeout);
+                               " fail_timeout=%ds", peers->peer[i].fail_timeout);
+
+        if (peers->peer[i].down) {
+            b->last = ngx_snprintf(b->last, b->end - b->last, " down");
+        }
+
+        b->last = ngx_snprintf(b->last, b->end - b->last, ";\n");
     }
 
 end:
