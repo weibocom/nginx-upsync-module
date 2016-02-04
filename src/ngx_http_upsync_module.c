@@ -81,6 +81,7 @@ typedef struct {
     ngx_msec_t                       upsync_timeout;
     ngx_msec_t                       upsync_interval;
 
+    ngx_int_t                        upsync_lb;
     ngx_uint_t                       strong_dependency;
 
     ngx_str_t                        upsync_send;
@@ -152,6 +153,7 @@ typedef struct {
 
 
 static ngx_upsync_conf_t *ngx_http_upsync_get_type_conf(ngx_str_t *str);
+static ngx_int_t ngx_http_upsync_get_lb_type(ngx_str_t *str);
 static char *ngx_http_upsync_server(ngx_conf_t *cf, 
     ngx_command_t *cmd, void *conf);
 static char *ngx_http_upsync_set_conf_dump(ngx_conf_t *cf, 
@@ -422,6 +424,20 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             continue;
         }
 
+        if (ngx_strncmp(value[i].data, "upsync_lb=", 10) == 0) {
+            s.len = value[i].len - 10;
+            s.data = value[i].data + 10;
+
+            upscf->upsync_lb = ngx_http_upsync_get_lb_type(&s);
+            if (upscf->upsync_lb == NGX_ERROR) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                   "upsync_server: upsync_lb invalid para");
+                goto invalid;
+            }
+
+            continue;
+        }
+
         goto invalid;
     }
 
@@ -520,6 +536,44 @@ ngx_http_upsync_get_type_conf(ngx_str_t *str)
     }
 
     return NULL;
+}
+
+
+static ngx_int_t
+ngx_http_upsync_get_lb_type(ngx_str_t *str)
+{
+    switch(str->len) {
+        case 7:
+            if (ngx_memcmp((char *)str->data, "ip_hash", 7) == 0) {
+                return NGX_HTTP_LB_IP_HASH;
+            }
+
+            break;
+
+        case 10:
+            if (ngx_memcmp((char *)str->data, "roundrobin", 10) == 0) {
+                return NGX_HTTP_LB_ROUNDROBIN;
+            }
+
+            if (ngx_memcmp((char *)str->data, "least_conn", 10) == 0) {
+                return NGX_HTTP_LB_LEAST_CONN;
+            }
+
+            break;
+
+        case 11:
+            if (ngx_memcmp((char *)str->data, "hash_modula", 11) == 0) {
+                return NGX_HTTP_LB_HASH_MODULA;
+            }
+
+            if (ngx_memcmp((char *)str->data, "hash_ketama", 11) == 0) {
+                return NGX_HTTP_LB_HASH_KETAMA;
+            }
+
+            break;
+    }
+
+    return NGX_ERROR;
 }
 
 
@@ -703,6 +757,7 @@ ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
             peers->peer[m].sockaddr = server->addrs->sockaddr;
             peers->peer[m].socklen = server->addrs->socklen;
             peers->peer[m].name = server->addrs->name;
+            peers->peer[m].server = server->addrs->name;
             peers->peer[m].max_fails = server->max_fails;
             peers->peer[m].fail_timeout = server->fail_timeout;
             peers->peer[m].down = server->down;
@@ -874,6 +929,7 @@ ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
                 peers->peer[n].socklen = tmp_peers->peer[i].socklen;
                 peers->peer[n].name.len = tmp_peers->peer[i].name.len;
                 peers->peer[n].name.data = tmp_peers->peer[i].name.data;
+                peers->peer[n].server = tmp_peers->peer[i].server;
                 peers->peer[n].max_fails = tmp_peers->peer[i].max_fails;
                 peers->peer[n].fail_timeout = tmp_peers->peer[i].fail_timeout;
                 peers->peer[n].down = tmp_peers->peer[i].down;
@@ -1489,6 +1545,8 @@ ngx_http_upsync_create_srv_conf(ngx_conf_t *cf)
     upscf->upsync_timeout = NGX_CONF_UNSET_MSEC;
     upscf->upsync_interval = NGX_CONF_UNSET_MSEC;
 
+    upscf->upsync_lb = NGX_CONF_UNSET;
+
     upscf->strong_dependency = NGX_CONF_UNSET_UINT;
 
     upscf->conf_file = NGX_CONF_UNSET_PTR;
@@ -1532,6 +1590,10 @@ ngx_http_upsync_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_uint_t num)
 
     if (upscf->upsync_interval == NGX_CONF_UNSET_MSEC) {
         upscf->upsync_interval = 1000 * 5;
+    }
+
+    if (upscf->upsync_lb == NGX_CONF_UNSET) {
+        upscf->upsync_lb = NGX_HTTP_LB_DEFAULT;
     }
 
     if (upscf->strong_dependency == NGX_CONF_UNSET_UINT) {
@@ -1817,9 +1879,19 @@ ngx_http_upsync_init_peers(ngx_cycle_t *cycle,
             peers->peer[i].effective_weight = tmp_peers->peer[i].effective_weight;
             peers->peer[i].current_weight = tmp_peers->peer[i].current_weight;
 
+            peers->peer[i].server = peers->peer[i].name;
+
 #if (NGX_HTTP_UPSTREAM_CHECK) 
             peers->peer[i].check_index = tmp_peers->peer[i].check_index;
 #endif
+        }
+
+        if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_LEAST_CONN) {
+            ngx_http_upsync_least_conn_init(uscf, 0);
+        }
+
+        if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_HASH_KETAMA) {
+            ngx_http_upsync_chash_init(uscf, 0);
         }
 
         uscf->peer.data = peers;
@@ -3337,7 +3409,7 @@ ngx_http_upsync_show(ngx_http_request_t *r)
     host = &r->args;
     if (host->len == 0 || host->data == NULL) {
 
-        b->last = ngx_snprintf(b->last,b->end - b->last, 
+        b->last = ngx_snprintf(b->last, b->end - b->last, 
                                "Please input specific upstream name");
         goto end;
     }
@@ -3354,7 +3426,7 @@ ngx_http_upsync_show(ngx_http_request_t *r)
 
     if (i == umcf->upstreams.nelts) {
 
-        b->last = ngx_snprintf(b->last,b->end - b->last, 
+        b->last = ngx_snprintf(b->last, b->end - b->last, 
                                "The upstream name you input is not exited,"
                                "Please check and input again");
         goto end;
@@ -3364,19 +3436,19 @@ ngx_http_upsync_show(ngx_http_request_t *r)
         peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
     }
 
-    b->last = ngx_snprintf(b->last,b->end - b->last, 
+    b->last = ngx_snprintf(b->last, b->end - b->last, 
                            "Upstream name: %V;", host);
-    b->last = ngx_snprintf(b->last,b->end - b->last, 
+    b->last = ngx_snprintf(b->last, b->end - b->last, 
                            "Backend server counts: %d\n", peers->number);
 
     for (i = 0; i < peers->number; i++) {
-        b->last = ngx_snprintf(b->last,b->end - b->last, 
+        b->last = ngx_snprintf(b->last, b->end - b->last, 
                                "        server %V", &peers->peer[i].name);
-        b->last = ngx_snprintf(b->last,b->end - b->last, 
+        b->last = ngx_snprintf(b->last, b->end - b->last, 
                                " weight=%d", peers->peer[i].weight);
-        b->last = ngx_snprintf(b->last,b->end - b->last, 
+        b->last = ngx_snprintf(b->last, b->end - b->last, 
                                " max_fails=%d", peers->peer[i].max_fails);
-        b->last = ngx_snprintf(b->last,b->end - b->last, 
+        b->last = ngx_snprintf(b->last, b->end - b->last, 
                                " fail_timeout=%ds", peers->peer[i].fail_timeout);
 
         if (peers->peer[i].down) {
