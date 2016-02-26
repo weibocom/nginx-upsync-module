@@ -784,6 +784,14 @@ ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
         uscf->peer.data = peers;
         peers->next = tmp_peers->next;
 
+        if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_LEAST_CONN) {
+            ngx_http_upsync_least_conn_init(uscf, tmp_peers->number);
+        }
+
+        if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_HASH_KETAMA) {
+            ngx_http_upsync_chash_init(uscf, tmp_peers);
+        }
+
         ngx_http_upsync_event_init(tmp_peers, upsync_server, NGX_ADD);
     }
 
@@ -953,6 +961,14 @@ ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
         uscf->peer.data = peers;
         peers->next = tmp_peers->next;
 
+        if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_LEAST_CONN) {
+            ngx_http_upsync_del_peer_least_conn(uscf);
+        }
+
+        if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_HASH_KETAMA) {
+            ngx_http_upsync_del_chash_peer(uscf);
+        }
+
         ngx_http_upsync_event_init(tmp_peers, upsync_server, NGX_DEL);
     }
 
@@ -1006,8 +1022,7 @@ ngx_http_upsync_del_filter(ngx_cycle_t *cycle,
 
             upstream_conf = (ngx_http_upsync_conf_t *)ctx->upstream_conf.elts + j;
             if (ngx_memcmp(peers->peer[i].name.data, 
-                           upstream_conf->sockaddr, peers->peer[i].name.len) 
-                    == 0) 
+                           upstream_conf->sockaddr, peers->peer[i].name.len) == 0) 
             {
                 break;
             }
@@ -1015,8 +1030,10 @@ ngx_http_upsync_del_filter(ngx_cycle_t *cycle,
 
         if (j == len) {
             del_upstream = ngx_array_push(&ctx->del_upstream);
+
             ngx_memzero(del_upstream, sizeof(*del_upstream));
-            ngx_memcpy(&del_upstream->sockaddr, peers->peer[i].name.data, peers->peer[i].name.len);
+            ngx_memcpy(&del_upstream->sockaddr, peers->peer[i].name.data, 
+                       peers->peer[i].name.len);
         }
     }
 
@@ -1891,7 +1908,7 @@ ngx_http_upsync_init_peers(ngx_cycle_t *cycle,
         }
 
         if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_HASH_KETAMA) {
-            ngx_http_upsync_chash_init(uscf, 0);
+            ngx_http_upsync_chash_init(uscf, NULL);
         }
 
         uscf->peer.data = peers;

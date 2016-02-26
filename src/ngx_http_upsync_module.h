@@ -94,14 +94,14 @@ typedef struct {
 static ngx_int_t ngx_http_upsync_least_conn_init(
     ngx_http_upstream_srv_conf_t *uscf, ngx_uint_t peers_old_count);
 static ngx_int_t ngx_http_upsync_del_peer_least_conn(
-    ngx_http_upstream_srv_conf_t *uscf, ngx_uint_t pos);
+    ngx_http_upstream_srv_conf_t *uscf);
 
 static int ngx_libc_cdecl ngx_http_upsync_chash_cmp_points(const void *one, 
     const void *two);
 static void ngx_http_upsync_chash(ngx_http_upstream_rr_peer_t *peer, 
     ngx_http_upstream_chash_points_t *points);
 static ngx_int_t ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
-    ngx_uint_t new_peer_count);
+    ngx_http_upstream_rr_peers_t *tmp_peers);
 static ngx_int_t ngx_http_upsync_del_chash_peer(
     ngx_http_upstream_srv_conf_t *uscf);
 
@@ -114,29 +114,27 @@ ngx_http_upsync_least_conn_init(ngx_http_upstream_srv_conf_t *uscf,
     ngx_http_upstream_rr_peers_t          *peers;
     ngx_http_upstream_least_conn_conf_t   *lcf;
 
-
     lcf = ngx_http_conf_upstream_srv_conf(uscf,
                                           ngx_http_upstream_least_conn_module);
     if(lcf->conns == NULL) {
-        return 0;   
+        return NGX_OK;
     }
 
     peers = uscf->peer.data;
     n = peers->number;
-    n += peers->next ? peers->next->number : 0;
 
-    conns = ngx_calloc(n, ngx_cycle->log);
-    if (conns == NULL ) {
+    conns = ngx_calloc(sizeof(ngx_uint_t) * n, ngx_cycle->log);
+    if (conns == NULL) {
         return NGX_ERROR;
     }
 
     if (peers_old_count == 0) {
-        ngx_memcpy(conns, lcf->conns, peers->number);
+        ngx_memcpy(conns, lcf->conns, sizeof(ngx_uint_t) * peers->number);
         ngx_pfree(ngx_cycle->pool, lcf->conns);
 
     } else {
 
-        ngx_memcpy(conns, lcf->conns, peers_old_count);
+        ngx_memcpy(conns, lcf->conns, sizeof(ngx_uint_t) * peers_old_count);
         ngx_free(lcf->conns);
     }
 
@@ -147,25 +145,30 @@ ngx_http_upsync_least_conn_init(ngx_http_upstream_srv_conf_t *uscf,
 
 
 static ngx_int_t
-ngx_http_upsync_del_peer_least_conn(ngx_http_upstream_srv_conf_t *uscf, 
-    ngx_uint_t pos)
+ngx_http_upsync_del_peer_least_conn(ngx_http_upstream_srv_conf_t *uscf)
 {
-    ngx_uint_t                               i;
-    ngx_http_upstream_rr_peers_t            *peers;
-    ngx_http_upstream_least_conn_conf_t     *lcf;
-
-    peers = uscf->peer.data;
+    ngx_uint_t                            *conns, n;
+    ngx_http_upstream_rr_peers_t          *peers;
+    ngx_http_upstream_least_conn_conf_t   *lcf;
 
     lcf = ngx_http_conf_upstream_srv_conf(uscf,
                                           ngx_http_upstream_least_conn_module);
 
-    if(lcf->conns == NULL) {
+    if (lcf->conns == NULL) {
         return NGX_OK;
     }
 
-    for (i = pos; i < peers->number; i++) {
-        lcf->conns[i] = lcf->conns[i + 1];
+    peers = uscf->peer.data;
+    n = peers->number;
+
+    conns = ngx_calloc(sizeof(ngx_uint_t) * n, ngx_cycle->log);
+    if (conns == NULL) {
+        return NGX_ERROR;
     }
+
+    ngx_free(lcf->conns);
+
+    lcf->conns = conns;
 
     return NGX_OK;
 }
@@ -255,15 +258,17 @@ ngx_http_upsync_chash(ngx_http_upstream_rr_peer_t *peer,
 
             pre_hash = hash;
         }
+
+    return;
 }
 
 
 static ngx_int_t
 ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
-    ngx_uint_t new_peer_count)
+    ngx_http_upstream_rr_peers_t *tmp_peers)
 {
     size_t                                    old_size, new_size;
-    ngx_uint_t                                npoints, i, j;
+    ngx_uint_t                                old_npoints, new_npoints, i, j;
     ngx_http_upstream_rr_peer_t              *peer;
     ngx_http_upstream_rr_peers_t             *peers;
     ngx_http_upstream_chash_points_t         *points;
@@ -271,18 +276,19 @@ ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
 
     hcf = ngx_http_conf_upstream_srv_conf(uscf, ngx_http_upstream_hash_module);
     if(hcf->points == NULL) {
-        return 0;    
+        return 0;
     }
 
     peers = uscf->peer.data;
 
-    if (new_peer_count != 0) {
-        npoints = (peers->total_weight - peers->peer[peers->number - 1].weight) * 160;
+    if (tmp_peers != NULL) {
+        old_npoints = tmp_peers->total_weight * 160;
+        new_npoints = peers->total_weight * 160;
 
         old_size = sizeof(ngx_http_upstream_chash_points_t)
-                   + sizeof(ngx_http_upstream_chash_point_t) * (npoints - 1);
-        new_size = old_size
-                   + sizeof(ngx_http_upstream_chash_point_t) * peers->peer[peers->number - 1].weight * 160;
+                   + sizeof(ngx_http_upstream_chash_point_t) * old_npoints;
+        new_size = sizeof(ngx_http_upstream_chash_points_t)
+                   + sizeof(ngx_http_upstream_chash_point_t) * new_npoints;
 
         points = ngx_calloc(new_size, ngx_cycle->log);
         if (points == NULL ) {
@@ -292,11 +298,17 @@ ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
         ngx_memcpy(points, hcf->points, old_size);
         ngx_free(hcf->points);
 
+        hcf->points = points;
+        for (i = tmp_peers->number; i < peers->number; i++) {
+            peer = &peers->peer[i];
+            ngx_http_upsync_chash(peer, points);
+        }
+
     } else {
-        npoints = peers->total_weight * 160;
+        new_npoints = peers->total_weight * 160;
 
         new_size = sizeof(ngx_http_upstream_chash_points_t)
-                   + sizeof(ngx_http_upstream_chash_point_t) * (npoints - 1);
+                   + sizeof(ngx_http_upstream_chash_point_t) * (new_npoints - 1);
 
         points = ngx_calloc(new_size, ngx_cycle->log);
         if (points == NULL ) {
@@ -306,13 +318,10 @@ ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
         ngx_memcpy(points, hcf->points, new_size);
         ngx_pfree(ngx_cycle->pool, hcf->points);
 
+        hcf->points = points;
+
         return NGX_OK;
     }
-
-    hcf->points = points;
-    peer = &peers->peer[peers->number - 1];
-
-    ngx_http_upsync_chash(peer, points);
 
     ngx_qsort(points->point,
               points->number,
@@ -321,7 +330,7 @@ ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
 
     for (i = 0, j = 1; j < points->number; j++) {
         if (points->point[i].hash != points->point[j].hash) {
-                points->point[++i] = points->point[j];
+            points->point[++i] = points->point[j];
         }
     }
 
@@ -349,7 +358,7 @@ ngx_http_upsync_del_chash_peer(ngx_http_upstream_srv_conf_t *uscf)
 
     points = hcf->points;
     points->number = 0;
-  
+
     for (i = 0; i < peers->number; i++) {
         peer = &peers->peer[i];
         ngx_http_upsync_chash(peer, points);
