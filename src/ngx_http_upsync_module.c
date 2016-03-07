@@ -153,7 +153,8 @@ typedef struct {
 
 
 static ngx_upsync_conf_t *ngx_http_upsync_get_type_conf(ngx_str_t *str);
-static ngx_int_t ngx_http_upsync_get_lb_type(ngx_str_t *str);
+static char *ngx_http_upsync_set_lb(ngx_conf_t *cf, ngx_command_t *cmd, 
+    void *conf);
 static char *ngx_http_upsync_server(ngx_conf_t *cf, 
     ngx_command_t *cmd, void *conf);
 static char *ngx_http_upsync_set_conf_dump(ngx_conf_t *cf, 
@@ -268,6 +269,13 @@ static ngx_command_t  ngx_http_upsync_commands[] = {
         NGX_HTTP_UPS_CONF|NGX_CONF_1MORE,
         ngx_http_upsync_server,
         NGX_HTTP_SRV_CONF_OFFSET,
+        0,
+        NULL },
+
+    {  ngx_string("upsync_lb"),
+        NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+        ngx_http_upsync_set_lb,
+        0,
         0,
         NULL },
 
@@ -424,20 +432,6 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             continue;
         }
 
-        if (ngx_strncmp(value[i].data, "upsync_lb=", 10) == 0) {
-            s.len = value[i].len - 10;
-            s.data = value[i].data + 10;
-
-            upscf->upsync_lb = ngx_http_upsync_get_lb_type(&s);
-            if (upscf->upsync_lb == NGX_ERROR) {
-                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                   "upsync_server: upsync_lb invalid para");
-                goto invalid;
-            }
-
-            continue;
-        }
-
         goto invalid;
     }
 
@@ -539,41 +533,65 @@ ngx_http_upsync_get_type_conf(ngx_str_t *str)
 }
 
 
-static ngx_int_t
-ngx_http_upsync_get_lb_type(ngx_str_t *str)
+static char *
+ngx_http_upsync_set_lb(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
+    ngx_str_t                         *value, *str;
+    ngx_http_upsync_srv_conf_t        *upscf;
+
+    upscf = ngx_http_conf_get_module_srv_conf(cf,
+                                              ngx_http_upsync_module);
+    value = cf->args->elts;
+
+    str = &value[1];
+    if (str->len == NGX_CONF_UNSET_SIZE) {
+        upscf->upsync_lb = NGX_HTTP_LB_DEFAULT;
+
+        return NGX_CONF_OK; 
+    }
+
     switch(str->len) {
         case 7:
             if (ngx_memcmp((char *)str->data, "ip_hash", 7) == 0) {
-                return NGX_HTTP_LB_IP_HASH;
+                upscf->upsync_lb = NGX_HTTP_LB_IP_HASH;
+
+                return NGX_CONF_OK;
             }
 
             break;
 
         case 10:
             if (ngx_memcmp((char *)str->data, "roundrobin", 10) == 0) {
-                return NGX_HTTP_LB_ROUNDROBIN;
+                upscf->upsync_lb = NGX_HTTP_LB_ROUNDROBIN;
+
+                return NGX_CONF_OK;
             }
 
             if (ngx_memcmp((char *)str->data, "least_conn", 10) == 0) {
-                return NGX_HTTP_LB_LEAST_CONN;
+                upscf->upsync_lb = NGX_HTTP_LB_LEAST_CONN;
+
+                return NGX_CONF_OK;
             }
 
             break;
 
         case 11:
             if (ngx_memcmp((char *)str->data, "hash_modula", 11) == 0) {
-                return NGX_HTTP_LB_HASH_MODULA;
+                upscf->upsync_lb = NGX_HTTP_LB_HASH_MODULA;
+
+                return NGX_CONF_OK;
             }
 
             if (ngx_memcmp((char *)str->data, "hash_ketama", 11) == 0) {
-                return NGX_HTTP_LB_HASH_KETAMA;
+                upscf->upsync_lb = NGX_HTTP_LB_HASH_KETAMA;
+
+                return NGX_CONF_OK;
             }
 
             break;
     }
 
-    return NGX_ERROR;
+    return NGX_CONF_OK;
 }
 
 
