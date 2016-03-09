@@ -21,6 +21,9 @@
 #define NGX_INDEX_HEARDER "X-Consul-Index"
 #define NGX_INDEX_HEARDER_LEN 14
 
+#define NGX_INDEX_ETCD_HEARDER "X-Etcd-Index"
+#define NGX_INDEX_ETCD_HEARDER_LEN 12
+
 #define NGX_MAX_HEADERS 20
 #define NGX_MAX_ELEMENT_SIZE 512
 
