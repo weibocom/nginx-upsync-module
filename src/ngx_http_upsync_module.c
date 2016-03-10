@@ -644,8 +644,10 @@ ngx_http_upsync_process(ngx_http_upsync_server_t *upsync_server)
     }
 
     if (upsync_type_conf->parse(upsync_server) == NGX_ERROR) {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "upsync_process: parse json error");
+        if (upsync_server->index != 0) {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                          "upsync_process: parse json error");
+        }
         return;
     }
 
@@ -744,7 +746,7 @@ ngx_http_upsync_check_index(ngx_http_upsync_server_t *upsync_server)
             }
         }
 
-        upsync_server->index = index;
+        upsync_server->index = index + 1;
     }
 
     return NGX_OK;
@@ -1395,16 +1397,6 @@ ngx_http_upsync_etcd_parse_json(void *data)
     }
 
     cJSON *nodes = cJSON_GetObjectItem(node, "nodes");
-/*
-    cJSON *nodes = NULL, *temp = NULL;
-    for (temp = node->child; temp != NULL; temp = temp->next) {
-
-        if (ngx_memcmp(temp->string, "nodes", 5) == 0) {
-            nodes = temp->child;
-            break;
-        }
-    }
-*/
     if (nodes == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                       "upsync_parse_json: nodes is null, no servers");
@@ -2530,13 +2522,14 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
 
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_ETCD) {
         if (upsync_server->index != 0) {
-            ngx_sprintf(request, "GET %V?wait=true&recursive=true" 
-                        "HTTP/1.0\r\nHost: %V\r\n Accept: */*\r\n\r\n", 
-                        &upscf->upsync_send, &upscf->conf_server.name);
+            ngx_sprintf(request, "GET %V?wait=true&recursive=true&waitIndex=%d" 
+                        " HTTP/1.0\r\nHost: %V\r\n Accept: */*\r\n\r\n", 
+                        &upscf->upsync_send, upsync_server->index,
+                        &upscf->conf_server.name);
 
         } else {
             ngx_sprintf(request, "GET %V?" 
-                        "HTTP/1.0\r\nHost: %V\r\n Accept: */*\r\n\r\n", 
+                        " HTTP/1.0\r\nHost: %V\r\n Accept: */*\r\n\r\n", 
                         &upscf->upsync_send, &upscf->conf_server.name);
 
         }
