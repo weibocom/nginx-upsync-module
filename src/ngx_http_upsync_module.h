@@ -289,9 +289,9 @@ ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
         new_npoints = peers->total_weight * 160;
 
         old_size = sizeof(ngx_http_upstream_chash_points_t)
-                   + sizeof(ngx_http_upstream_chash_point_t) * old_npoints;
+                   + sizeof(ngx_http_upstream_chash_point_t) * (old_npoints - 1);
         new_size = sizeof(ngx_http_upstream_chash_points_t)
-                   + sizeof(ngx_http_upstream_chash_point_t) * new_npoints;
+                   + sizeof(ngx_http_upstream_chash_point_t) * (new_npoints - 1);
 
         points = ngx_calloc(new_size, ngx_cycle->log);
         if (points == NULL ) {
