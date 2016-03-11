@@ -802,8 +802,10 @@ ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
 
             peers->peer[m].sockaddr = server->addrs->sockaddr;
             peers->peer[m].socklen = server->addrs->socklen;
-            peers->peer[m].name = server->addrs->name;
-            peers->peer[m].server = server->addrs->name;
+            peers->peer[m].name.len = server->addrs->name.len;
+            peers->peer[m].name.data = server->addrs->name.data;
+            peers->peer[m].server.len = server->addrs->name.len;
+            peers->peer[m].server.data = server->addrs->name.data;
             peers->peer[m].max_fails = server->max_fails;
             peers->peer[m].fail_timeout = server->fail_timeout;
             peers->peer[m].down = server->down;
@@ -983,7 +985,8 @@ ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
                 peers->peer[n].socklen = tmp_peers->peer[i].socklen;
                 peers->peer[n].name.len = tmp_peers->peer[i].name.len;
                 peers->peer[n].name.data = tmp_peers->peer[i].name.data;
-                peers->peer[n].server = tmp_peers->peer[i].server;
+                peers->peer[n].server.len = tmp_peers->peer[i].server.len;
+                peers->peer[n].server.data = tmp_peers->peer[i].server.data;
                 peers->peer[n].max_fails = tmp_peers->peer[i].max_fails;
                 peers->peer[n].fail_timeout = tmp_peers->peer[i].fail_timeout;
                 peers->peer[n].down = tmp_peers->peer[i].down;
