@@ -1432,9 +1432,15 @@ ngx_http_upsync_etcd_parse_json(void *data)
         upstream_conf->backup = 0;
 
         temp0 = cJSON_GetObjectItem(server_next, "value");
-        if (temp0 != NULL && temp0->child != NULL) {
+        if (temp0 != NULL && temp0->valuestring != NULL) {
 
             cJSON *sub_attribute = cJSON_Parse((char *)temp0->valuestring);
+            if (sub_attribute == NULL) {
+                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                              "upsync_parse_json: value is invalide");
+                continue;
+            }
+
             cJSON *temp1 = cJSON_GetObjectItem(sub_attribute, "weight");
             if (temp1 != NULL) {
 
@@ -1500,6 +1506,9 @@ ngx_http_upsync_etcd_parse_json(void *data)
                 }
             }
             temp1 = NULL;
+
+        } else {
+            continue;
         }
 
         if (upstream_conf->weight <= 0) {
