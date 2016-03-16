@@ -21,8 +21,11 @@ Table of Contents
         * [upsync_type](#upsync_type)
         * [strong_dependency](#strong_dependency)
     * [upsync_dump_path](#upsync_dump_path)
+    * [upsync_lb](#upsync_lb)
     * [upstream_show](#upstream_show)
 * [Consul_interface](#consul_interface)
+* [Etcd_interface](#etcd_interface)
+* [Check_module](#check_module_support)
 * [TODO](#todo)
 * [Compatibility](#compatibility)
 * [Installation](#installation)
@@ -39,7 +42,7 @@ This module is still under active development and is considered production ready
 Synopsis
 ========
 
-```nginx
+```nginx-consul
 http {
     upstream test {
         # fake server otherwise ngx_http_upstream will report error when startup
@@ -48,6 +51,76 @@ http {
         # all backend server will pull from consul when startup and will delete fake server
         upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
+    }
+
+    upstream bar {
+        server 127.0.0.1:8090 weight=1, fail_timeout=10, max_fails=3;
+    }
+
+    server {
+        listen 8080;
+
+        location = /proxy_test {
+            proxy_pass http://test;
+        }
+
+        location = /bar {
+            proxy_pass http://bar;
+        }
+
+        location = /upstream_show {
+            upstream_show;
+        }
+
+    }
+}
+```
+
+```nginx-etcd
+http {
+    upstream test {
+        # fake server otherwise ngx_http_upstream will report error when startup
+        server 127.0.0.1:11111;
+
+        # all backend server will pull from consul when startup and will delete fake server
+        upsync 127.0.0.1:8500/v2/keys/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=etcd strong_dependency=off;
+        upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
+    }
+
+    upstream bar {
+        server 127.0.0.1:8090 weight=1, fail_timeout=10, max_fails=3;
+    }
+
+    server {
+        listen 8080;
+
+        location = /proxy_test {
+            proxy_pass http://test;
+        }
+
+        location = /bar {
+            proxy_pass http://bar;
+        }
+
+        location = /upstream_show {
+            upstream_show;
+        }
+
+    }
+}
+```
+
+```upsync_lb
+http {
+    upstream test {
+        least_conn; //hash $uri consistent;
+        # fake server otherwise ngx_http_upstream will report error when startup
+        server 127.0.0.1:11111;
+
+        # all backend server will pull from consul when startup and will delete fake server
+        upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
+        upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
+        upsync_lb least_conn; //hash_ketama;
     }
 
     upstream bar {
@@ -140,6 +213,18 @@ description: dump the upstream backends to the $path.
 
 [Back to TOC](#table-of-contents)       
 
+upsync_lb
+-----------
+`syntax: upsync_lb $load_balance`
+
+default: round_robin/ip_hash/hash modula
+
+context: upstream
+
+description: mainly for least_conn and hash consistent, when using one of them, you must point out using upsync_lb.
+
+[Back to TOC](#table-of-contents)       
+
 upstream_show
 -----------
 `syntax: upstream_show`
@@ -208,10 +293,113 @@ or
 
 [Back to TOC](#table-of-contents)       
 
+Etcd_interface
+======
+
+you can add or delete backend server through http_interface.
+
+mainly like consul, http_interface example:
+
+* add
+```
+    curl -X PUT http://$consul_ip:$port/v2/keys/upstreams/$upstream_name/$backend_ip:$backend_port
+```
+    default: weight=1 max_fails=2 fail_timeout=10 down=0 backup=0;
+
+```
+    curl -X PUT -d value="{\"weight\":1, \"max_fails\":2, \"fail_timeout\":10}" http://$etcd_ip:$port/v2/keys/$dir1/$upstream_name/$backend_ip:$backend_port
+```
+    value support json format.
+
+* delete
+```
+    curl -X DELETE http://$etcd_ip:$port/v2/keys/upstreams/$upstream_name/$backend_ip:$backend_port
+```
+
+* adjust-weight
+```
+    curl -X PUT -d "{\"weight\":2, \"max_fails\":2, \"fail_timeout\":10}" http://$etcd_ip:$port/v2/keys/$dir1/$upstream_name/$backend_ip:$backend_port
+```
+
+* mark server-down
+```
+    curl -X PUT -d value="{\"weight\":2, \"max_fails\":2, \"fail_timeout\":10, \"down\":1}" http://$etcd_ip:$port/v2/keys/$dir1/$upstream_name/$backend_ip:$backend_port
+```
+
+* check
+```
+    curl http://$etcd_ip:$port/v2/keys/upstreams/$upstream_name
+```
+
+[Back to TOC](#table-of-contents)       
+
+Check_module
+======
+
+check module support.
+
+```check-conf
+http {
+    upstream test {
+        # fake server otherwise ngx_http_upstream will report error when startup
+        server 127.0.0.1:11111;
+
+        # all backend server will pull from consul when startup and will delete fake server
+        upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
+        upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
+
+        check interval=1000 rise=2 fall=2 timeout=3000 type=http port=$backend_port;
+        check_http_send "HEAD / HTTP/1.0\r\n\r\n";
+        check_http_expect_alive http_2xx http_3xx;
+
+    }
+
+    upstream bar {
+        server 127.0.0.1:8090 weight=1, fail_timeout=10, max_fails=3;
+    }
+
+    server {
+        listen 8080;
+
+        location = /proxy_test {
+            proxy_pass http://test;
+        }
+
+        location = /bar {
+            proxy_pass http://bar;
+        }
+
+        location = /upstream_show {
+            upstream_show;
+        }
+
+        location = /upstream_status {
+            check_status;
+            access_log off;
+        }
+
+    }
+}
+```
+
+* Note
+
+      directive: port, is not missing. 
+
+        when checking port is different with backend server-port, that is ok, port=$check_port;
+
+        when checking port is same as backend server-port, all servers's port should be same, port=$backend_port;
+
+      Todo: checking port is same as backend server-port, supporing different servers's port.
+
+[Back to TOC](#table-of-contents)       
+
 TODO
 ====
 
-* support etcd, zookeeper and so on
+* support nginx-1.9.x
+
+* support zookeeper and so on
 
 [Back to TOC](#table-of-contents)
 

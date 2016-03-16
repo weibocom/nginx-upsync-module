@@ -259,6 +259,30 @@ server 127.0.0.1:8088 weight=40 max_fails=0 fail_timeout=30s;
 
 like(get_dump_content('/tmp/servers_test.conf'), $dump, '2015-12-27 18:51:35');
 
+#######################
+
+like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":40,"max_fails":3,"fail_timeout":20, "down":1}', 8500), qr/true/m, '2016-03-15 18:35:35');
+
+sleep(1);
+
+$dump = qr/server 127.0.0.1:8089 weight=20 max_fails=0 fail_timeout=30s;
+server 127.0.0.1:8088 weight=40 max_fails=3 fail_timeout=20s down;
+/m;
+
+like(get_dump_content('/tmp/servers_test.conf'), $dump, '2016-03-15 18:51:35');
+
+#######################
+
+like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":40,"max_fails":0,"fail_timeout":30, "down":0}', 8500), qr/true/m, '2016-03-15 17:35:35');
+
+sleep(1);
+
+$dump = qr/server 127.0.0.1:8089 weight=20 max_fails=0 fail_timeout=30s;
+server 127.0.0.1:8088 weight=40 max_fails=0 fail_timeout=30s;
+/m;
+
+like(get_dump_content('/tmp/servers_test.conf'), $dump, '2016-03-15 17:51:35');
+
 $t->stop();
 
 ##############################################################################
@@ -419,6 +443,30 @@ server 127.0.0.1:8088 weight=40 max_fails=0 fail_timeout=30s;
 /m;
 
 like(get_dump_content('/tmp/servers_test.conf'), $dump, '2015-12-27 19:53:35');
+
+##########################
+
+like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":40,"max_fails":3,"fail_timeout":20, "down":1}', 8500), qr/true/m, '2016-03-15 19:39:35');
+
+sleep(1);
+
+$dump = qr/server 127.0.0.1:8089 weight=20 max_fails=0 fail_timeout=30s;
+server 127.0.0.1:8088 weight=40 max_fails=3 fail_timeout=20s down;
+/m;
+
+like(get_dump_content('/tmp/servers_test.conf'), $dump, '2016-03-15 19:53:35');
+
+##########################
+
+like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":40,"max_fails":3,"fail_timeout":20, "down":0}', 8500), qr/true/m, '2016-03-15 20:39:35');
+
+sleep(1);
+
+$dump = qr/server 127.0.0.1:8089 weight=20 max_fails=0 fail_timeout=30s;
+server 127.0.0.1:8088 weight=40 max_fails=3 fail_timeout=20s;
+/m;
+
+like(get_dump_content('/tmp/servers_test.conf'), $dump, '2016-03-15 20:53:35');
 
 $t->stop();
 
