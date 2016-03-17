@@ -1128,6 +1128,8 @@ ngx_http_upsync_update_peers(ngx_cycle_t *cycle,
                 peers->peer[i].fail_timeout = upstream_conf->fail_timeout;
                 peers->peer[i].down = upstream_conf->down;
                 peers->peer[i].weight = upstream_conf->weight;
+                peers->peer[i].effective_weight = upstream_conf->weight;
+                peers->peer[i].current_weight = 0;
 
                 w += upstream_conf->weight;
 
