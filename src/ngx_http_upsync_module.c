@@ -796,9 +796,12 @@ ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
         for (i = 0; i < servers->nelts; i++) {
 
             server = (ngx_http_upstream_server_t *)servers->elts + i;
-            if (server->backup) {
-                continue;
-            }
+            //if (server->backup) {
+            //    continue;
+            //}
+            //
+            // FIXME: until backup is fully implemented this causes crashes
+            //        on startup with nodes set backup=1. Let them in for now
 
             peers->peer[m].sockaddr = server->addrs->sockaddr;
             peers->peer[m].socklen = server->addrs->socklen;
