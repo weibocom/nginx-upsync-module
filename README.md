@@ -42,6 +42,7 @@ This module is still under active development and is considered production ready
 Synopsis
 ========
 
+nginx-consul:
 ```nginx-consul
 http {
     upstream test {
@@ -75,7 +76,7 @@ http {
     }
 }
 ```
-
+nginx-etcd:
 ```nginx-etcd
 http {
     upstream test {
@@ -109,7 +110,7 @@ http {
     }
 }
 ```
-
+upsync_lb:
 ```upsync_lb
 http {
     upstream test {
@@ -338,6 +339,7 @@ Check_module
 
 check module support.
 
+check-conf:
 ```check-conf
 http {
     upstream test {
@@ -348,7 +350,7 @@ http {
         upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
 
-        check interval=1000 rise=2 fall=2 timeout=3000 type=http port=$backend_port;
+        check interval=1000 rise=2 fall=2 timeout=3000 type=http default_down=false;
         check_http_send "HEAD / HTTP/1.0\r\n\r\n";
         check_http_expect_alive http_2xx http_3xx;
 
@@ -381,16 +383,6 @@ http {
     }
 }
 ```
-
-* Note
-
-      directive: port, is not missing. 
-
-        when checking port is different with backend server-port, that is ok, port=$check_port;
-
-        when checking port is same as backend server-port, all servers's port should be same, port=$backend_port;
-
-      Todo: checking port is same as backend server-port, supporing different servers's port.
 
 [Back to TOC](#table-of-contents)       
 

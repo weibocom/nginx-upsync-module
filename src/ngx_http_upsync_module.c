@@ -1719,7 +1719,14 @@ ngx_http_upsync_addrs(ngx_pool_t *pool, u_char *sockaddr, ngx_flag_t flag)
         return NULL;
     }
 
-    addrs = ngx_pcalloc(pool, sizeof(ngx_addr_t));
+    //TODO: it's a little trick, a issue with upstream_check_module
+    // add/del interface, not rely on addrs of check_peers;
+    if (flag == NGX_ADD) {
+        addrs = ngx_pcalloc(ngx_cycle->pool, sizeof(ngx_addr_t));
+
+    } else {
+        addrs = ngx_pcalloc(pool, sizeof(ngx_addr_t));
+    }
     if (addrs == NULL) {
 
         if (flag == NGX_ADD) {
