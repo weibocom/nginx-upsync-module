@@ -1177,6 +1177,7 @@ ngx_http_upsync_consul_parse_json(void *data)
     {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                       "upsync_parse_json: array init error");
+        cJSON_Delete(root);
         return NGX_ERROR;
     }
 
@@ -1384,7 +1385,7 @@ ngx_http_upsync_etcd_parse_json(void *data)
                 upsync_server->index = 0;
                 upsync_type_conf->clean(upsync_server);
                 ngx_add_timer(&upsync_server->upsync_ev, 0);
-                
+                cJSON_Delete(root);
                 return NGX_ERROR;
             }
         }
@@ -1396,11 +1397,13 @@ ngx_http_upsync_etcd_parse_json(void *data)
     {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                       "upsync_parse_json: array init error");
+        cJSON_Delete(root);
         return NGX_ERROR;
     }
 
     cJSON *node = cJSON_GetObjectItem(root, "node");
     if (node == NULL) {
+        cJSON_Delete(root);
         return NGX_ERROR;
     }
 
@@ -1408,6 +1411,7 @@ ngx_http_upsync_etcd_parse_json(void *data)
     if (nodes == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                       "upsync_parse_json: nodes is null, no servers");
+        cJSON_Delete(root);
         return NGX_ERROR;
     }
 
@@ -2391,14 +2395,11 @@ ngx_http_upsync_add_timers(ngx_cycle_t *cycle)
     if (upsync_server == NULL) {
         return NGX_OK;
     }
-    upscf = upsync_server->upscf;
 
-    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, cycle->log, 0,
-                   "upsync_add_timers: shm_name: %V", upsync_server->pc.name);
+    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, cycle->log, 0, "upsync_add_timers");
 
     srandom(ngx_pid);
     for (i = 0; i < upsync_ctx->upstream_num; i++) {
-
         upsync_server[i].upsync_ev.handler = ngx_http_upsync_begin_handler;
         upsync_server[i].upsync_ev.log = cycle->log;
         upsync_server[i].upsync_ev.data = &upsync_server[i];
@@ -2414,6 +2415,7 @@ ngx_http_upsync_add_timers(ngx_cycle_t *cycle)
          * We add a random start time here, since we don't want to trigger
          * the check events too close to each other at the beginning.
          */
+        upscf = upsync_server[i].upscf;
         tmp = upscf->upsync_interval;
         t = ngx_random() % 1000 + tmp;
 
@@ -3433,7 +3435,8 @@ ngx_http_upsync_clear_all_events()
         }
     }
 
-    if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL) {
+    if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL
+        || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_ETCD) {
 
         if (parser != NULL) {
             ngx_free(parser);
