@@ -3678,10 +3678,11 @@ ngx_http_upsync_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
 
 static void 
-ngx_http_upsync_show_upstream(ngx_http_upstream_srv_conf_t *uscf, ngx_buf_t *b) {
-    ngx_http_upstream_rr_peers_t    *peers = NULL;
-    ngx_uint_t                       i;
+ngx_http_upsync_show_upstream(ngx_http_upstream_srv_conf_t *uscf, ngx_buf_t *b)
+{
     ngx_str_t                       *host;
+    ngx_uint_t                       i;
+    ngx_http_upstream_rr_peers_t    *peers = NULL;
 
     host = &(uscf->host);
 
