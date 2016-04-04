@@ -3676,6 +3676,40 @@ ngx_http_upsync_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     return NGX_CONF_OK;
 }
 
+static void ngx_http_upsync_show_upstream(ngx_http_upstream_srv_conf_t *uscf, ngx_buf_t *b) {
+    ngx_http_upstream_rr_peers_t    *peers = NULL;
+    ngx_uint_t                       i;
+    ngx_str_t                       *host;
+
+    host = &(uscf->host);
+
+    if (uscf->peer.data != NULL) {
+        peers = (ngx_http_upstream_rr_peers_t *) uscf->peer.data;
+    }
+
+    b->last = ngx_snprintf(b->last, b->end - b->last, "Upstream name: %V; ",
+            host);
+    b->last = ngx_snprintf(b->last, b->end - b->last,
+            "Backend server count: %d\n", peers->number);
+
+    for (i = 0; i < peers->number; i++) {
+        b->last = ngx_snprintf(b->last, b->end - b->last, "        server %V",
+                &peers->peer[i].name);
+        b->last = ngx_snprintf(b->last, b->end - b->last, " weight=%d",
+                peers->peer[i].weight);
+        b->last = ngx_snprintf(b->last, b->end - b->last, " max_fails=%d",
+                peers->peer[i].max_fails);
+        b->last = ngx_snprintf(b->last, b->end - b->last, " fail_timeout=%ds",
+                peers->peer[i].fail_timeout);
+
+        if (peers->peer[i].down) {
+            b->last = ngx_snprintf(b->last, b->end - b->last, " down");
+        }
+
+        b->last = ngx_snprintf(b->last, b->end - b->last, ";\n");
+    }
+}
+
 
 static ngx_int_t
 ngx_http_upsync_show(ngx_http_request_t *r)
@@ -3685,8 +3719,7 @@ ngx_http_upsync_show(ngx_http_request_t *r)
     ngx_str_t                             *host;
     ngx_uint_t                             i;
     ngx_chain_t                            out;
-    ngx_http_upstream_rr_peers_t          *peers = NULL;
-    ngx_http_upstream_srv_conf_t         **uscfp = NULL, *uscf = NULL;
+    ngx_http_upstream_srv_conf_t         **uscfp = NULL;
     ngx_http_upstream_main_conf_t         *umcf;
 
     umcf = ngx_http_cycle_get_module_main_conf(ngx_cycle, 
@@ -3722,9 +3755,12 @@ ngx_http_upsync_show(ngx_http_request_t *r)
 
     host = &r->args;
     if (host->len == 0 || host->data == NULL) {
-
-        b->last = ngx_snprintf(b->last, b->end - b->last, 
-                               "Please append the upstream name");
+    	
+    	for (i = 0; i < umcf->upstreams.nelts; i++) {
+            ngx_http_upsync_show_upstream(uscfp[i], b);
+            b->last = ngx_snprintf(b->last, b->end - b->last, "\n");
+        }
+    	
         goto end;
     }
 
@@ -3733,44 +3769,14 @@ ngx_http_upsync_show(ngx_http_request_t *r)
         if (uscfp[i]->host.len == host->len
             && ngx_strncasecmp(uscfp[i]->host.data, host->data, host->len) == 0) 
         {
-            uscf = uscfp[i];
-            break;
+            ngx_http_upsync_show_upstream(uscfp[i], b);
+            goto end;
         }
     }
 
-    if (i == umcf->upstreams.nelts) {
-
-        b->last = ngx_snprintf(b->last, b->end - b->last, 
-                               "The upstream you requested does not exist. "
-                               "Please double-check the name");
-        goto end;
-    }
-
-    if (uscf->peer.data != NULL) {
-        peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
-    }
-
     b->last = ngx_snprintf(b->last, b->end - b->last, 
-                           "Upstream name: %V; ", host);
-    b->last = ngx_snprintf(b->last, b->end - b->last, 
-                           "Backend server count: %d\n", peers->number);
-
-    for (i = 0; i < peers->number; i++) {
-        b->last = ngx_snprintf(b->last, b->end - b->last, 
-                               "        server %V", &peers->peer[i].name);
-        b->last = ngx_snprintf(b->last, b->end - b->last, 
-                               " weight=%d", peers->peer[i].weight);
-        b->last = ngx_snprintf(b->last, b->end - b->last, 
-                               " max_fails=%d", peers->peer[i].max_fails);
-        b->last = ngx_snprintf(b->last, b->end - b->last, 
-                               " fail_timeout=%ds", peers->peer[i].fail_timeout);
-
-        if (peers->peer[i].down) {
-            b->last = ngx_snprintf(b->last, b->end - b->last, " down");
-        }
-
-        b->last = ngx_snprintf(b->last, b->end - b->last, ";\n");
-    }
+                           "The upstream you requested does not exist. "
+                           "Please double-check the name");    
 
 end:
     r->headers_out.status = NGX_HTTP_OK;
