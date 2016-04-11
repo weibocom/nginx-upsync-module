@@ -3758,6 +3758,13 @@ ngx_http_upsync_show(ngx_http_request_t *r)
 
     host = &r->args;
     if (host->len == 0 || host->data == NULL) {
+
+        if (umcf->upstreams.nelts == 0) {
+            b->last = ngx_snprintf(b->last, b->end - b->last,
+                    "No upstreams defined");
+
+            goto end;
+        }
     	
     	for (i = 0; i < umcf->upstreams.nelts; i++) {
             ngx_http_upsync_show_upstream(uscfp[i], b);
