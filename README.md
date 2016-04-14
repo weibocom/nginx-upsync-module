@@ -7,6 +7,8 @@ It may not always be convenient to modify configuration files and restart NGINX.
 
 The module can be more smoothly expansion and constriction, and will not influence the performance.
 
+Another module, [nginx-stream-upsync-module](https://github.com/xiaokai-wang/nginx-stream-upsync-module) supports nginx stream module(TCP protocol), please be noticed.
+
 Table of Contents
 =================
 
@@ -242,8 +244,14 @@ description: Show specific upstream all backend servers.
      }
 ```
 
-```request
+```request1
 curl http://127.0.0.1:8500/upstream_list?test;
+```
+
+```request2
+curl http://127.0.0.1:8500/upstream_list;
+
+show all upstreams.
 ```
 
 [Back to TOC](#table-of-contents)       

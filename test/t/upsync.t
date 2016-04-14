@@ -175,6 +175,8 @@ sleep(1);
 
 like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 18:17:53');
 
+like(mhttp_get('/upstream_list', 'localhost', 8080), $rep, '2015-04-14 18:17:53');
+
 #########################
 
 like(mhttp_delete('/v1/kv/upstreams/test/127.0.0.1:8089', 8500), qr/true/m, '2015-12-27 18:24:37');
@@ -215,6 +217,8 @@ sleep(1);
 
 like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 18:34:40');
 
+like(mhttp_get('/upstream_list', 'localhost', 8080), $rep, '2015-04-14 18:34:40');
+
 #######################
 
 like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":20,"max_fails":0,"fail_timeout":30}', 8500), qr/true/m, '2015-12-27 18:35:35');
@@ -243,6 +247,8 @@ sleep(1);
 
 like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 18:43:40');
 
+like(mhttp_get('/upstream_list', 'localhost', 8080), $rep, '2015-04-14 18:43:40');
+
 #######################
 
 like(mhttp_delete('/v1/kv/upstreams/test?recurse', 8500), qr/true/m, '2015-12-27 18:22:33');
@@ -250,6 +256,8 @@ like(mhttp_delete('/v1/kv/upstreams/test?recurse', 8500), qr/true/m, '2015-12-27
 sleep(1);
 
 like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 18:44:51');
+
+like(mhttp_get('/upstream_list', 'localhost', 8080), $rep, '2016-04-14 18:44:51');
 
 #######################
 
@@ -348,6 +356,8 @@ sleep(1);
 
 like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 19:20:30');
 
+like(mhttp_get('/upstream_list', 'localhost', 8080), $rep, '2015-04-14 19:20:30');
+
 ###############################################################################
 
 like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8088', '{"weight":10,"max_fails":3,"fail_timeout":10}', 8500), qr/true/m, '2015-12-27 17:50:35');
@@ -362,6 +372,8 @@ sleep(1);
 
 like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 19:26:53');
 
+like(mhttp_get('/upstream_list', 'localhost', 8080), $rep, '2015-04-14 19:26:53');
+
 ###########################
 
 like(mhttp_delete('/v1/kv/upstreams/test/127.0.0.1:8089', 8500), qr/true/m, '2015-12-27 19:28:37');
@@ -375,6 +387,8 @@ sleep(1);
 
 like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 19:30:40');
 
+like(mhttp_get('/upstream_list', 'localhost', 8080), $rep, '2015-04-14 19:30:40');
+
 ###########################
 
 like(mhttp_put('/v1/kv/upstreams/test/127.0.0.1:8089', '{"weight":20,"max_fails":0,"fail_timeout":30}', 8500), qr/true/m, '2015-12-27 19:31:39');
@@ -386,6 +400,8 @@ Upstream name: test;Backend server counts: 2
 /m;
 
 like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 19:32:53');
+
+like(mhttp_get('/upstream_list', 'localhost', 8080), $rep, '2015-04-14 19:32:53');
 
 ##########################
 
@@ -428,6 +444,8 @@ sleep(1);
 
 like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 19:49:40');
 
+like(mhttp_get('/upstream_list', 'localhost', 8080), $rep, '2015-04-14 19:49:40');
+
 ###########################
 
 like(mhttp_delete('/v1/kv/upstreams/test?recurse', 8500), qr/true/m, '2015-12-27 19:50:37');
@@ -435,6 +453,8 @@ like(mhttp_delete('/v1/kv/upstreams/test?recurse', 8500), qr/true/m, '2015-12-27
 sleep(1);
 
 like(mhttp_get('/upstream_list?test', 'localhost', 8080), $rep, '2015-12-27 19:51:40');
+
+like(mhttp_get('/upstream_list', 'localhost', 8080), $rep, '2015-04-14 19:51:40');
 
 ##########################
 
