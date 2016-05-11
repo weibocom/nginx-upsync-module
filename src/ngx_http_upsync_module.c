@@ -1188,7 +1188,12 @@ ngx_http_upsync_consul_parse_json(void *data)
         cJSON *temp1 = cJSON_GetObjectItem(server_next, "Key");
         if (temp1 != NULL && temp1->valuestring != NULL) {
             p = (u_char *)ngx_strrchr(temp1->valuestring, '/');
-            if (p == NULL || ngx_http_upsync_check_key(p) != NGX_OK) {
+            if (p == NULL) {
+                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                              "upsync_parse_json: %s key format is illegal, "
+                              "contains no slash ('/')", temp1->valuestring);
+                continue;
+            } else if (ngx_http_upsync_check_key(p) != NGX_OK) {
                 continue;
             }
 
@@ -1422,7 +1427,12 @@ ngx_http_upsync_etcd_parse_json(void *data)
         cJSON *temp0 = cJSON_GetObjectItem(server_next, "key");
         if (temp0 != NULL && temp0->valuestring != NULL) {
             p = (u_char *)ngx_strrchr(temp0->valuestring, '/');
-            if (ngx_http_upsync_check_key(p) != NGX_OK) {
+            if (p == NULL) {
+                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                              "upsync_parse_json: %s key format is illegal, "
+                              "contains no slash ('/')", temp0->valuestring);
+                continue;
+            } else if (ngx_http_upsync_check_key(p) != NGX_OK) {
                 continue;
             }
 
