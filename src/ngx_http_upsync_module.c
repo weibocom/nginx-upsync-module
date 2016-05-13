@@ -1380,6 +1380,18 @@ ngx_http_upsync_etcd_parse_json(void *data)
                       "upsync_parse_json: root error");
         return NGX_ERROR;
     }
+    
+    cJSON *errorCode = cJSON_GetObjectItem(root, "errorCode");
+    
+    if (errorCode != NULL) {
+        if (errorCode->valueint == 401) { // trigger reload, we've gone too far with index
+            upsync_server->index = 0;
+            upsync_type_conf->clean(upsync_server);
+            ngx_add_timer(&upsync_server->upsync_ev, 0);
+        }
+        cJSON_Delete(root);
+        return NGX_ERROR;
+    }
 
     cJSON *action = cJSON_GetObjectItem(root, "action");
     if (action != NULL) {
@@ -2558,9 +2570,10 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
 
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_ETCD) {
         if (upsync_server->index != 0) {
-            ngx_sprintf(request, "GET %V?wait=true&recursive=true"
+            ngx_sprintf(request, "GET %V?wait=true&recursive=true&waitIndex=%d"
                         " HTTP/1.0\r\nHost: %V\r\nAccept: */*\r\n\r\n", 
-                        &upscf->upsync_send, &upscf->conf_server.name);
+                        &upscf->upsync_send, upsync_server->index, 
+                        &upscf->conf_server.name);
 
         } else {
             ngx_sprintf(request, "GET %V?" 
@@ -3221,7 +3234,8 @@ ngx_http_parser_execute(ngx_http_upsync_ctx_t *ctx)
         return;
     }
 
-    if (ngx_strncmp(state.status, "OK", 2) == 0) {
+    if (ngx_strncmp(state.status, "OK", 2) == 0 
+            || ngx_strncmp(state.status, "Bad", 3) == 0) {
 
         if (ngx_strlen(state.http_body) != 0) {
             ctx->body.pos = state.http_body;
