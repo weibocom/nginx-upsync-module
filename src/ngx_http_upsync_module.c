@@ -205,7 +205,7 @@ static void ngx_http_upsync_event_init(ngx_http_upstream_rr_peers_t *tmp_peers,
     ngx_http_upsync_server_t *upsync_server, ngx_flag_t flag);
 
 static ngx_int_t ngx_http_parser_init();
-static void ngx_http_parser_execute(ngx_http_upsync_ctx_t *ctx);
+static void ngx_http_parser_execute(ngx_http_upsync_ctx_t *ctx, ngx_upsync_conf_t *upsync_type_conf);
 
 static int ngx_http_status(http_parser *p, const char *buf, size_t len);
 static int ngx_http_header_field_cb(http_parser *p, const char *buf, 
@@ -2753,7 +2753,7 @@ ngx_http_upsync_parse_init(void *data)
             return NGX_ERROR;
         }
 
-        ngx_http_parser_execute(ctx);
+        ngx_http_parser_execute(ctx, upsync_type_conf);
         if (ctx->body.pos != ctx->body.last) {
             *(ctx->body.last + 1) = '\0';
 
@@ -3218,7 +3218,7 @@ ngx_http_parser_init()
 
 
 static void
-ngx_http_parser_execute(ngx_http_upsync_ctx_t *ctx)
+ngx_http_parser_execute(ngx_http_upsync_ctx_t *ctx, ngx_upsync_conf_t *upsync_type_conf)
 {
     char      *buf;
     size_t     parsed;
@@ -3235,7 +3235,8 @@ ngx_http_parser_execute(ngx_http_upsync_ctx_t *ctx)
     }
 
     if (ngx_strncmp(state.status, "OK", 2) == 0 
-            || ngx_strncmp(state.status, "Bad", 3) == 0) {
+            || (ngx_strncmp(state.status, "Bad", 3) == 0 &&
+                    upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_ETCD)) {
 
         if (ngx_strlen(state.http_body) != 0) {
             ctx->body.pos = state.http_body;
