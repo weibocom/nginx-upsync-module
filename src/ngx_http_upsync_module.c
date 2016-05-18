@@ -2570,9 +2570,10 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
 
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_ETCD) {
         if (upsync_server->index != 0) {
-            ngx_sprintf(request, "GET %V?wait=true&recursive=true"
+            ngx_sprintf(request, "GET %V?wait=true&recursive=true&waitIndex=%d"
                         " HTTP/1.0\r\nHost: %V\r\nAccept: */*\r\n\r\n", 
-                        &upscf->upsync_send, &upscf->conf_server.name);
+                        &upscf->upsync_send, upsync_server->index, 
+                        &upscf->conf_server.name);
 
         } else {
             ngx_sprintf(request, "GET %V?" 
