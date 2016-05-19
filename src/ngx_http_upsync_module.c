@@ -2757,7 +2757,7 @@ ngx_http_upsync_consul_parse_init(void *data)
     parsed = http_parser_execute(parser, &settings, buf, ngx_strlen(buf));
     if (parsed != ngx_strlen(buf)) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "http_parser_execute: parsed body size is wrong");
+                      "upsync_consul_parse_init: parsed body size is wrong");
         return NGX_ERROR;
     }
 
@@ -2806,7 +2806,7 @@ ngx_http_upsync_etcd_parse_init(void *data)
     parsed = http_parser_execute(parser, &settings, buf, ngx_strlen(buf));
     if (parsed != ngx_strlen(buf)) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "http_parser_execute: parsed body size is wrong");
+                      "upsync_etcd_parse_init: parsed body size is wrong");
         return NGX_ERROR;
     }
 
