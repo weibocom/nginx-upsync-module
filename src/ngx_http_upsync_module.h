@@ -27,8 +27,6 @@
 #define NGX_MAX_HEADERS 20
 #define NGX_MAX_ELEMENT_SIZE 512
 
-#define NGX_MAX_VALUE 65535
-
 #define NGX_DELAY_DELETE 75 * 1000
 
 #define NGX_ADD 0
@@ -137,7 +135,8 @@ ngx_http_upsync_least_conn_init(ngx_http_upstream_srv_conf_t *uscf,
 
     } else {
 
-        ngx_memcpy(conns, lcf->conns, sizeof(ngx_uint_t) * peers_old_count);
+        ngx_memcpy(conns + (peers->number - peers_old_count), 
+                   lcf->conns, sizeof(ngx_uint_t) * peers_old_count);
         ngx_free(lcf->conns);
     }
 
@@ -302,7 +301,7 @@ ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
         ngx_free(hcf->points);
 
         hcf->points = points;
-        for (i = tmp_peers->number; i < peers->number; i++) {
+        for (i = 0; i < peers->number - tmp_peers->number; i++) {
             peer = &peers->peer[i];
             ngx_http_upsync_chash(peer, points);
         }
