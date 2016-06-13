@@ -1907,6 +1907,10 @@ ngx_http_upsync_init_module(ngx_cycle_t *cycle)
     ngx_http_upsync_server_t        *upsync_server;
     ngx_http_upsync_srv_conf_t      *upscf;
 
+    // no http {} block found
+    if (upsync_ctx == NULL) {
+        return NGX_OK;
+    }
     upsync_server = upsync_ctx->upsync_server;
 
     if (ngx_http_upsync_init_shm_mutex(cycle) != NGX_OK) {
@@ -2016,6 +2020,10 @@ ngx_http_upsync_init_process(ngx_cycle_t *cycle)
     ngx_http_upsync_ctx_t               *ctx;
     ngx_http_upsync_server_t            *upsync_server;
 
+    // no http {} block found
+    if (upsync_ctx == NULL) {
+        return NGX_OK;
+    }
     upsync_server = upsync_ctx->upsync_server;
 
     for (i = 0; i < upsync_ctx->upstream_num; i++) {
