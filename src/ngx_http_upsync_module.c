@@ -1640,7 +1640,11 @@ ngx_http_upsync_zk_parse_json(void *data)
     }
     
     cJSON *server_next;
-    for (server_next = children->child; server_next != NULL;
+    cJSON *node = cJSON_GetObjectItem(children, "path");
+    
+
+    server_next = node == NULL ? children->child : children;
+    for (; server_next != NULL;
          server_next = server_next->next)
     {
         cJSON *temp1 = cJSON_GetObjectItem(server_next, "path");
@@ -2813,7 +2817,7 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
     }
     
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_ZK) {
-        ngx_sprintf(request, "GET %V?view=chilren&recursive=true"
+        ngx_sprintf(request, "GET %V?view=children&recursive=true"
                     " HTTP/1.0\r\nHost: %V\r\nAccept: */*\r\n\r\n",
                     &upscf->upsync_send, &upscf->conf_server.name);
     }
@@ -3940,7 +3944,7 @@ ngx_http_client_send(ngx_http_conf_client *client,
     }
     
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_ZK) {
-        ngx_sprintf(request, "GET %V?view=chilren&recursive=true"
+        ngx_sprintf(request, "GET %V?view=children&recursive=true"
                     " HTTP/1.0\r\nHost: %V\r\nAccept: */*\r\n\r\n",
                     &upscf->upsync_send, &upscf->conf_server.name);
 
