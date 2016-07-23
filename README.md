@@ -397,8 +397,6 @@ http {
 TODO
 ====
 
-* support nginx-1.9.x
-
 * support zookeeper and so on
 
 [Back to TOC](#table-of-contents)
@@ -406,9 +404,9 @@ TODO
 Compatibility
 =============
 
-The module was developed base on nginx1.8.0.
+Master branch is compatible with nginx-1.9+.
 
-Compatible with Nginx-1.8.x.
+The branch of nginx-upsync-1.8.x is compatible with Nginx-1.8.x.
 
 [Back to TOC](#table-of-contents)
 
