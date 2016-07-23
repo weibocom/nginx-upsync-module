@@ -1146,8 +1146,8 @@ ngx_http_upsync_update_peers(ngx_cycle_t *cycle,
 static ngx_int_t
 ngx_http_upsync_consul_parse_json(void *data)
 {
-    u_char                          *p;
-    ngx_buf_t                       *buf;
+    u_char                         *p;
+    ngx_buf_t                      *buf;
     ngx_int_t                       max_fails=2, backup=0, down=0;
     ngx_str_t                       src, dst;
     ngx_http_upsync_ctx_t          *ctx;
@@ -1232,8 +1232,7 @@ ngx_http_upsync_consul_parse_json(void *data)
             cJSON *sub_root = cJSON_Parse((char *)p);
             if (sub_root == NULL) {
                 ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                              "upsync_parse_json: parse attribute json failed,"
-                              "setting server attribute to default value");
+                              "upsync_parse_json: parse \'%s\' failed", p);
                 continue;
             }
 
@@ -1357,8 +1356,8 @@ ngx_http_upsync_consul_parse_json(void *data)
 static ngx_int_t
 ngx_http_upsync_etcd_parse_json(void *data)
 {
-    u_char                          *p;
-    ngx_buf_t                       *buf;
+    u_char                         *p;
+    ngx_buf_t                      *buf;
     ngx_int_t                       max_fails=2, backup=0, down=0;
     ngx_upsync_conf_t              *upsync_type_conf;
     ngx_http_upsync_ctx_t          *ctx;
@@ -1463,7 +1462,8 @@ ngx_http_upsync_etcd_parse_json(void *data)
             cJSON *sub_attribute = cJSON_Parse((char *)temp0->valuestring);
             if (sub_attribute == NULL) {
                 ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                              "upsync_parse_json: value is invalid");
+                              "upsync_parse_json: \'%s\' is invalid", 
+                              temp0->valuestring);
                 continue;
             }
 
