@@ -1883,10 +1883,14 @@ ngx_http_upsync_init_srv_conf(ngx_conf_t *cf, void *conf, ngx_uint_t num)
                                       + uscf->host.len;
     }
 
-    upscf->conf_file = ngx_conf_open_file(cf->cycle, &upscf->upsync_dump_path); 
+    upscf->conf_file = ngx_pcalloc(cf->pool, sizeof(ngx_open_file_t));
     if (upscf->conf_file == NULL) {
         return NGX_CONF_ERROR; 
     }
+    upscf->conf_file->fd = NGX_INVALID_FILE;
+    upscf->conf_file->name = upscf->upsync_dump_path;
+    upscf->conf_file->flush = NULL;
+    upscf->conf_file->data = NULL;
 
     upsync_server->index = 0;
 
