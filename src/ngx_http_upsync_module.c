@@ -181,6 +181,8 @@ static void ngx_http_upsync_begin_handler(ngx_event_t *event);
 static void ngx_http_upsync_connect_handler(ngx_event_t *event);
 static void ngx_http_upsync_recv_handler(ngx_event_t *event);
 static void ngx_http_upsync_send_handler(ngx_event_t *event);
+static void ngx_http_upsync_recv_empty_handler(ngx_event_t *event);
+static void ngx_http_upsync_send_empty_handler(ngx_event_t *event);
 static void ngx_http_upsync_timeout_handler(ngx_event_t *event);
 static void ngx_http_upsync_clean_event(void *upsync_server);
 static ngx_int_t ngx_http_upsync_etcd_parse_init(void *upsync_server);
@@ -1380,7 +1382,6 @@ ngx_http_upsync_etcd_parse_json(void *data)
     if (errorCode != NULL) {
         if (errorCode->valueint == 401) { // trigger reload, we've gone too far with index
             upsync_server->index = 0;
-            upsync_type_conf->clean(upsync_server);
             ngx_add_timer(&upsync_server->upsync_ev, 0);
         }
         cJSON_Delete(root);
@@ -1394,7 +1395,6 @@ ngx_http_upsync_etcd_parse_json(void *data)
 
             if (ngx_memcmp(action->valuestring, "get", 3) != 0) {
                 upsync_server->index = 0;
-                upsync_type_conf->clean(upsync_server);
                 ngx_add_timer(&upsync_server->upsync_ev, 0);
                 cJSON_Delete(root);
                 return NGX_ERROR;
@@ -2520,7 +2520,7 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
         ngx_sprintf(request, "GET %V?recurse&index=%d HTTP/1.0\r\nHost: %V\r\n"
                     "Accept: */*\r\n\r\n", 
                     &upscf->upsync_send, upsync_server->index, 
-                    &upscf->conf_server.name);
+                    &upscf->upsync_host);
     }
 
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_ETCD) {
@@ -2528,12 +2528,12 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
             ngx_sprintf(request, "GET %V?wait=true&recursive=true&waitIndex=%d"
                         " HTTP/1.0\r\nHost: %V\r\nAccept: */*\r\n\r\n", 
                         &upscf->upsync_send, upsync_server->index, 
-                        &upscf->conf_server.name);
+                        &upscf->upsync_host);
 
         } else {
             ngx_sprintf(request, "GET %V?" 
                         " HTTP/1.0\r\nHost: %V\r\nAccept: */*\r\n\r\n", 
-                        &upscf->upsync_send, &upscf->conf_server.name);
+                        &upscf->upsync_send, &upscf->upsync_host);
 
         }
     }
@@ -2570,6 +2570,8 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
         ngx_log_debug0(NGX_LOG_DEBUG_HTTP, c->log, 0, 
                        "upsync_send: send done.");
     }
+
+    c->write->handler = ngx_http_upsync_send_empty_handler;
 
     return;
 
@@ -2675,6 +2677,8 @@ ngx_http_upsync_recv_handler(ngx_event_t *event)
 
         if (upsync_type_conf->init(upsync_server) == NGX_OK) {
             ngx_http_upsync_process(upsync_server);
+
+            c->read->handler = ngx_http_upsync_recv_empty_handler;
         }
     }
 
@@ -2688,6 +2692,20 @@ upsync_recv_fail:
                   upsync_server->pc.name);
 
     ngx_http_upsync_clean_event(upsync_server);
+}
+
+
+static void
+ngx_http_upsync_send_empty_handler(ngx_event_t *event)
+{
+    /* void */
+}
+
+
+static void
+ngx_http_upsync_recv_empty_handler(ngx_event_t *event)
+{
+    /* void */
 }
 
 
