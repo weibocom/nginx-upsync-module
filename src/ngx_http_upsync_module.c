@@ -227,7 +227,7 @@ static void *ngx_http_upsync_addrs(ngx_pool_t *pool, u_char *sockaddr);
 static void ngx_http_upsync_del_delay_delete(ngx_event_t *event);
 
 static ngx_int_t ngx_http_upsync_need_exit();
-static void ngx_http_upsync_clear_all_events();
+static void ngx_http_upsync_clear_all_events(ngx_cycle_t *cycle);
 
 static ngx_int_t ngx_http_upsync_get_upstream(ngx_cycle_t *cycle, 
     ngx_http_upsync_server_t *upsync_server, char **conf_value);
@@ -323,7 +323,7 @@ ngx_module_t  ngx_http_upsync_module = {
     ngx_http_upsync_init_process,               /* init process */
     NULL,                                       /* init thread */
     NULL,                                       /* exit thread */
-    NULL,                                       /* exit process */
+    ngx_http_upsync_clear_all_events,           /* exit process */
     NULL,                                       /* exit master */
     NGX_MODULE_V1_PADDING
 };
@@ -2480,6 +2480,8 @@ ngx_http_upsync_connect_handler(ngx_event_t *event)
     c->read->log = c->log;
     c->write->log = c->log;
 
+    c->idle = 1; //for quick exit.
+
     c->write->handler = upsync_type_conf->send_handler;
     c->read->handler = upsync_type_conf->recv_handler;
 
@@ -3340,7 +3342,7 @@ static ngx_int_t
 ngx_http_upsync_need_exit()
 {
     if (ngx_terminate || ngx_exiting || ngx_quit) {
-        ngx_http_upsync_clear_all_events();
+        ngx_http_upsync_clear_all_events((ngx_cycle_t *)ngx_cycle);
 
         return 1;
     }
@@ -3350,7 +3352,7 @@ ngx_http_upsync_need_exit()
 
 
 static void
-ngx_http_upsync_clear_all_events()
+ngx_http_upsync_clear_all_events(ngx_cycle_t *cycle)
 {
     ngx_uint_t                          i;
     ngx_connection_t                   *c;
