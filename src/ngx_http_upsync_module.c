@@ -1361,13 +1361,11 @@ ngx_http_upsync_etcd_parse_json(void *data)
     u_char                         *p;
     ngx_buf_t                      *buf;
     ngx_int_t                       max_fails=2, backup=0, down=0;
-    ngx_upsync_conf_t              *upsync_type_conf;
     ngx_http_upsync_ctx_t          *ctx;
     ngx_http_upsync_conf_t         *upstream_conf = NULL;
     ngx_http_upsync_server_t       *upsync_server = data;
 
     ctx = &upsync_server->ctx;
-    upsync_type_conf = upsync_server->upscf->upsync_type_conf;
     buf = &ctx->body;
 
     cJSON *root = cJSON_Parse((char *)buf->pos);
