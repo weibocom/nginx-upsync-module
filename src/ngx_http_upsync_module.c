@@ -3359,7 +3359,7 @@ ngx_http_upsync_clear_all_events(ngx_cycle_t *cycle)
 
     static ngx_flag_t                   has_cleared = 0;
 
-    if (has_cleared || upsync_ctx == NULL) {
+    if (has_cleared || upsync_ctx == NULL || upsync_ctx->upstream_num == 0) {
         return;
     }
 
