@@ -1455,7 +1455,7 @@ ngx_http_upsync_etcd_parse_json(void *data)
         upstream_conf->backup = 0;
 
         temp0 = cJSON_GetObjectItem(server_next, "value");
-        if (temp0 != NULL && temp0->valuestring != NULL) {
+        if (temp0 != NULL && ngx_strlen(temp0->valuestring) != 0) {
 
             cJSON *sub_attribute = cJSON_Parse((char *)temp0->valuestring);
             if (sub_attribute == NULL) {
