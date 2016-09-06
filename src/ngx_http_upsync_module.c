@@ -2123,12 +2123,13 @@ ngx_http_upsync_init_peers(ngx_cycle_t *cycle,
     tmp_peer = peers->peer;
     if (peers) {
 
+        peer = ngx_calloc(sizeof(ngx_http_upstream_rr_peer_t) * peers->number, 
+                                 cycle->log);
+        if (peer == NULL) {
+            goto invalid;
+        }
+
         for (i = 0; i < peers->number; i++) {
-            peer = ngx_calloc(sizeof(ngx_http_upstream_rr_peer_t), 
-                              cycle->log);
-            if (peer == NULL) {
-                goto invalid;
-            }
 
             if ((saddr = ngx_calloc(len, cycle->log)) == NULL) {
                 goto invalid;
