@@ -175,8 +175,13 @@ Diretives
 
 upsync
 -----------
+nginx-consul:
 ```
 syntax: upsync $consul.api.com:$port/v1/kv/upstreams/$upstream_name [upsync_type=consul] [upsync_interval=second/minutes] [upsync_timeout=second/minutes] [strong_dependency=off/on]
+```
+nginx-etcd:
+```
+syntax: upsync [$user:$pass@]$etcd.api.com:$port/v1/kv/upstreams/$upstream_name [upsync_type=consul] [upsync_interval=second/minutes] [upsync_timeout=second/minutes] [strong_dependency=off/on]
 ```
 default: none, if parameters omitted, default parameters are upsync_interval=5s upsync_timeout=6m strong_dependency=off
 
