@@ -921,8 +921,9 @@ ngx_http_upsync_add_filter(ngx_cycle_t *cycle,
 
         for (peer = peers->peer, j = 0; peer; peer = peer->next, j++) {
 
-            if (ngx_memcmp(peer->name.data, 
-                           upstream_conf->sockaddr, peer->name.len) == 0) {
+            if (ngx_memn2cmp(peer->name.data, upstream_conf->sockaddr,
+                             peer->name.len,
+                             ngx_strlen(upstream_conf->sockaddr)) == 0) {
                 break;
             }
         }
@@ -982,8 +983,10 @@ ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
         for (i = 0; i < servers->nelts; i++) {
 
             server = (ngx_http_upstream_server_t *)servers->elts + i;
-            if (ngx_memn2cmp((u_char *) peer->sockaddr, 
-                             (u_char *) server->addrs->sockaddr, len, len) == 0) 
+            if (ngx_memn2cmp((u_char *) peer->sockaddr,
+                             (u_char *) server->addrs->sockaddr,
+                             ngx_strlen(peer->sockaddr),
+                             ngx_strlen(server->addrs->sockaddr)) == 0) 
             {
 
 #if (NGX_HTTP_UPSTREAM_CHECK) 
@@ -1071,8 +1074,9 @@ ngx_http_upsync_del_filter(ngx_cycle_t *cycle,
         for (i = 0; i < len; i++) {
 
             upstream_conf = (ngx_http_upsync_conf_t *)ctx->upstream_conf.elts + i;
-            if (ngx_memcmp(peer->name.data, 
-                           upstream_conf->sockaddr, peer->name.len) == 0) 
+            if (ngx_memn2cmp(peer->name.data, upstream_conf->sockaddr,
+                             peer->name.len,
+                             ngx_strlen(upstream_conf->sockaddr)) == 0) 
             {
                 break;
             }
@@ -1121,8 +1125,9 @@ ngx_http_upsync_update_peers(ngx_cycle_t *cycle,
         for (i = 0; i < len; i++) {
 
             upstream_conf = (ngx_http_upsync_conf_t *)ctx->upstream_conf.elts + i;
-            if (ngx_memcmp(peer->name.data, 
-                           upstream_conf->sockaddr, peer->name.len) == 0) 
+            if (ngx_memn2cmp(peer->name.data, upstream_conf->sockaddr,
+                             peer->name.len,
+                             ngx_strlen(upstream_conf->sockaddr)) == 0) 
             {
                 peer->max_fails = upstream_conf->max_fails;
                 peer->fail_timeout = upstream_conf->fail_timeout;
