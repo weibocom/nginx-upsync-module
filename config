@@ -13,7 +13,7 @@ _HTTP_UPSYNC_SRCS="\
 have=NGX_HTTP_UPSYNC . auto/have
 
 if test -n "$ngx_module_link"; then
-  ngx_module_type=STREAM
+  ngx_module_type=HTTP
   ngx_module_name=$ngx_addon_name
   ngx_module_srcs="$_HTTP_UPSYNC_SRCS"
   ngx_module_libs=$ngx_feature_libs
