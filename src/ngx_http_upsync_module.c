@@ -470,8 +470,7 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
         upscf->upsync_basic_auth.len = 0;
         upscf->upsync_basic_auth.data = ngx_pcalloc(cf->pool, 1);
-    }
-    else {
+    } else {
         size_t      len;
         ngx_str_t   encoded, decoded;
         u_char      *h;
@@ -483,14 +482,19 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         decoded.len = p - value[1].data;
         decoded.data = value[1].data;
 
-        len = sizeof("Authorization: Basic ") - 1 + ngx_base64_encoded_length(decoded.len) + sizeof("\r\n");
+        len = sizeof("Authorization: Basic ") - 1 + 
+            ngx_base64_encoded_length(decoded.len) + sizeof("\r\n");
+
         h = ngx_pnalloc(cf->pool, len);
         if (h == NULL) {
-            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "upsync_server: out of memory");
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, 
+                "upsync_server: out of memory");
             return NGX_CONF_ERROR;
         }
 
-        encoded.data = ngx_cpymem(h, "Authorization: Basic ", sizeof("Authorization: Basic ") - 1);
+        encoded.data = ngx_cpymem(h, "Authorization: Basic ", 
+               sizeof("Authorization: Basic ") - 1);
+
         ngx_encode_base64(&encoded, &decoded);
         (void)ngx_cpymem(encoded.data + encoded.len, "\r\n", sizeof("\r\n"));
 
@@ -2565,11 +2569,14 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
     }
 
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_ETCD) {
+        // upscf->upsync_basic_auth either comes with trailing \r\n delimiter
+        // or evaluates to an empty string to ensure the \r\n\r\n sequence
+        // is present at the end of the header section
         if (upsync_server->index != 0) {
             ngx_sprintf(request, "GET %V?wait=true&recursive=true&waitIndex=%d"
                         " HTTP/1.0\r\nHost: %V\r\nAccept: */*\r\n"
-                        "%V\r\n", 
-                        &upscf->upsync_send, upsync_server->index, 
+                        "%V\r\n",
+                        &upscf->upsync_send, upsync_server->index,
                         &upscf->upsync_host,
                         &upscf->upsync_basic_auth);
 
@@ -3591,9 +3598,12 @@ ngx_http_client_send(ngx_http_conf_client *client,
     }
 
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_ETCD) {
+        // upscf->upsync_basic_auth either comes trailing \r\n delimiter
+        // or evaluates to an empty string to ensure the \r\n\r\n sequence
+        // is present at the end of the header section
         ngx_sprintf(request, "GET %V? HTTP/1.0\r\nHost: %V\r\n"
                     "Accept: */*\r\n"
-                    "%V\r\n", 
+                    "%V\r\n",
                     &upscf->upsync_send, &upscf->conf_server.name,
                     &upscf->upsync_basic_auth);
     }
