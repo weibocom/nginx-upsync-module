@@ -942,7 +942,7 @@ static ngx_int_t
 ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
     ngx_http_upsync_server_t *upsync_server)
 {
-    ngx_uint_t                     i, n=0, w=0;
+    ngx_uint_t                     i, n=0, w=0, len;
     ngx_array_t                   *servers;
     ngx_http_upstream_server_t    *server = NULL;
     ngx_http_upstream_rr_peer_t   *peer = NULL, *pre_peer = NULL;
@@ -950,6 +950,7 @@ ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
     ngx_http_upstream_rr_peers_t  *peers = NULL;
     ngx_http_upstream_srv_conf_t  *uscf;
 
+    len = sizeof(struct sockaddr);
     uscf = upsync_server->uscf;
 
     servers = ngx_http_upsync_servers(cycle, upsync_server, NGX_DEL);
@@ -986,8 +987,7 @@ ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
             server = (ngx_http_upstream_server_t *)servers->elts + i;
             if (ngx_memn2cmp((u_char *) peer->sockaddr,
                              (u_char *) server->addrs->sockaddr,
-                             ngx_strlen(peer->sockaddr),
-                             ngx_strlen(server->addrs->sockaddr)) == 0) 
+                             len, len) == 0)
             {
 
 #if (NGX_HTTP_UPSTREAM_CHECK) 
@@ -3578,9 +3578,9 @@ ngx_http_client_send(ngx_http_conf_client *client,
 static ngx_int_t
 ngx_http_client_recv(ngx_http_conf_client *client, char **data, int size) 
 {
-    ssize_t      recv_num = 0, tmp_recv = 0;
-    char         buff[ngx_pagesize];
     char        *tmp_data;
+    char         buff[ngx_pagesize];
+    ssize_t      recv_num = 0, tmp_recv = 0;
     ngx_int_t    page_count = 0;
 
     *data = NULL;
@@ -3650,14 +3650,14 @@ ngx_http_upsync_show_upstream(ngx_http_upstream_srv_conf_t *uscf, ngx_buf_t *b)
 
     if (uscf->peer.data == NULL) {
         b->last = ngx_snprintf(b->last, b->end - b->last,
-                           "Backend server count: %d\n", 0);
+                               "Backend server count: %d\n", 0);
         return;
-    } else {
-        peers = (ngx_http_upstream_rr_peers_t *) uscf->peer.data;
-
-        b->last = ngx_snprintf(b->last, b->end - b->last,
-                           "Backend server count: %d\n", peers->number);
     }
+
+    peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
+
+    b->last = ngx_snprintf(b->last, b->end - b->last,
+                           "Backend server count: %d\n", peers->number);
 
     for (peer = peers->peer; peer; peer = peer->next) {
         b->last = ngx_snprintf(b->last, b->end - b->last, 
