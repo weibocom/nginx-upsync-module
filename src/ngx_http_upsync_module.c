@@ -942,7 +942,7 @@ static ngx_int_t
 ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
     ngx_http_upsync_server_t *upsync_server)
 {
-    ngx_uint_t                     i, n=0, w=0, len=0;
+    ngx_uint_t                     i, n=0, w=0;
     ngx_array_t                   *servers;
     ngx_http_upstream_server_t    *server = NULL;
     ngx_http_upstream_rr_peer_t   *peer = NULL, *pre_peer = NULL;
@@ -950,7 +950,6 @@ ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
     ngx_http_upstream_rr_peers_t  *peers = NULL;
     ngx_http_upstream_srv_conf_t  *uscf;
 
-    len = sizeof(struct sockaddr);
     uscf = upsync_server->uscf;
 
     servers = ngx_http_upsync_servers(cycle, upsync_server, NGX_DEL);
@@ -1111,7 +1110,7 @@ ngx_http_upsync_update_peers(ngx_cycle_t *cycle,
     uscf = upsync_server->uscf;
 
     if (uscf->peer.data == NULL) {
-        return;
+        return NGX_ERROR;
     }
     
     peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
@@ -2121,7 +2120,7 @@ ngx_http_upsync_init_peers(ngx_cycle_t *cycle,
     ngx_queue_init(&upsync_server->delete_ev);
 
     if (uscf->peer.data == NULL) {
-        return;
+        return NGX_ERROR;
     }
     
     peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
