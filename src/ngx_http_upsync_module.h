@@ -55,18 +55,6 @@ extern void ngx_http_upstream_check_delete_dynamic_peer(ngx_str_t *name,
 #endif
 
 
-/*****************************least_conn****************************/
-
-extern ngx_module_t ngx_http_upstream_least_conn_module;
-
-
-typedef struct {
-    ngx_uint_t                        *conns;
-} ngx_http_upstream_least_conn_conf_t;
-
-/*****************************least_conn_end*************************/
-
-
 /******************************hash*********************************/
 
 extern  ngx_module_t ngx_http_upstream_hash_module;
@@ -92,11 +80,6 @@ typedef struct {
 /****************************hash_end*******************************/
 
 
-static ngx_int_t ngx_http_upsync_least_conn_init(
-    ngx_http_upstream_srv_conf_t *uscf, ngx_uint_t peers_old_count);
-static ngx_int_t ngx_http_upsync_del_peer_least_conn(
-    ngx_http_upstream_srv_conf_t *uscf);
-
 static int ngx_libc_cdecl ngx_http_upsync_chash_cmp_points(const void *one, 
     const void *two);
 static void ngx_http_upsync_chash(ngx_http_upstream_rr_peer_t *peer, 
@@ -105,75 +88,6 @@ static ngx_int_t ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
     ngx_http_upstream_rr_peers_t *tmp_peers);
 static ngx_int_t ngx_http_upsync_del_chash_peer(
     ngx_http_upstream_srv_conf_t *uscf);
-
-
-static ngx_int_t 
-ngx_http_upsync_least_conn_init(ngx_http_upstream_srv_conf_t *uscf, 
-    ngx_uint_t peers_old_count)
-{
-    ngx_uint_t                            *conns, n;
-    ngx_http_upstream_rr_peers_t          *peers;
-    ngx_http_upstream_least_conn_conf_t   *lcf;
-
-    lcf = ngx_http_conf_upstream_srv_conf(uscf,
-                                          ngx_http_upstream_least_conn_module);
-    if(lcf->conns == NULL) {
-        return NGX_OK;
-    }
-
-    peers = uscf->peer.data;
-    n = peers->number;
-
-    conns = ngx_calloc(sizeof(ngx_uint_t) * n, ngx_cycle->log);
-    if (conns == NULL) {
-        return NGX_ERROR;
-    }
-
-    if (peers_old_count == 0) {
-        ngx_memcpy(conns, lcf->conns, sizeof(ngx_uint_t) * peers->number);
-        ngx_pfree(ngx_cycle->pool, lcf->conns);
-
-    } else {
-
-        ngx_memcpy(conns + (peers->number - peers_old_count), 
-                   lcf->conns, sizeof(ngx_uint_t) * peers_old_count);
-        ngx_free(lcf->conns);
-    }
-
-    lcf->conns = conns;
-   
-    return NGX_OK;
-}
-
-
-static ngx_int_t
-ngx_http_upsync_del_peer_least_conn(ngx_http_upstream_srv_conf_t *uscf)
-{
-    ngx_uint_t                            *conns, n;
-    ngx_http_upstream_rr_peers_t          *peers;
-    ngx_http_upstream_least_conn_conf_t   *lcf;
-
-    lcf = ngx_http_conf_upstream_srv_conf(uscf,
-                                          ngx_http_upstream_least_conn_module);
-
-    if (lcf->conns == NULL) {
-        return NGX_OK;
-    }
-
-    peers = uscf->peer.data;
-    n = peers->number;
-
-    conns = ngx_calloc(sizeof(ngx_uint_t) * n, ngx_cycle->log);
-    if (conns == NULL) {
-        return NGX_ERROR;
-    }
-
-    ngx_free(lcf->conns);
-
-    lcf->conns = conns;
-
-    return NGX_OK;
-}
 
 
 static int ngx_libc_cdecl

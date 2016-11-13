@@ -827,6 +827,8 @@ ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
             peer->effective_weight = server->weight;
             peer->current_weight = 0;
 
+            peer->conns = 0;
+
             peer->next = peers->peer;
             peers->peer = peer;
 
@@ -857,10 +859,6 @@ ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
         peers->number = n;
         peers->weighted = (w != n);
         peers->total_weight = w;
-
-        if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_LEAST_CONN) {
-            ngx_http_upsync_least_conn_init(uscf, peers->number);
-        }
 
         if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_HASH_KETAMA) {
             ngx_http_upsync_chash_init(uscf, peers);
@@ -1027,10 +1025,6 @@ ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
     peers->number = n;
     peers->weighted = (w != n);
     peers->total_weight = w;
-
-    if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_LEAST_CONN) {
-        ngx_http_upsync_del_peer_least_conn(uscf);
-    }
 
     if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_HASH_KETAMA) {
         ngx_http_upsync_del_chash_peer(uscf);
@@ -2158,6 +2152,8 @@ ngx_http_upsync_init_peers(ngx_cycle_t *cycle,
             peer->effective_weight = tmp_peer[i].effective_weight;
             peer->current_weight = tmp_peer[i].current_weight;
 
+            peer->conns = 0;
+
 #if (NGX_HTTP_UPSTREAM_CHECK) 
             peer->check_index = tmp_peer[i].check_index;
 #endif
@@ -2167,10 +2163,6 @@ ngx_http_upsync_init_peers(ngx_cycle_t *cycle,
             if(i == 0) {
                 peer->next = NULL;
             }
-        }
-
-        if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_LEAST_CONN) {
-            ngx_http_upsync_least_conn_init(uscf, 0);
         }
 
         if (upsync_server->upscf->upsync_lb == NGX_HTTP_LB_HASH_KETAMA) {
