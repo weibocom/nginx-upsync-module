@@ -31,6 +31,7 @@ Table of Contents
 * [TODO](#todo)
 * [Compatibility](#compatibility)
 * [Installation](#installation)
+* [Code style](#code-style)
 * [Author](#author)
 * [Copyright and License](#copyright-and-license)
 * [See Also](#see-also)
@@ -435,6 +436,13 @@ if you support nginx-upstream-check-module
 make
 make install
 ```
+
+[Back to TOC](#table-of-contents)
+
+Code style
+======
+
+Code style is mainly based on [style](http://tengine.taobao.org/book/appendix_a.html)
 
 [Back to TOC](#table-of-contents)
 
