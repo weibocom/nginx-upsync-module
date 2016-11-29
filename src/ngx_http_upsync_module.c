@@ -817,7 +817,9 @@ ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
             ngx_memcpy(namep, server->addrs->name.data,
                        server->addrs->name.len);
             peer->name.data = namep;
+            peer->server.data = namep;
 
+            peer->server.len = server->addrs->name.len;
             peer->socklen = server->addrs->socklen;
             peer->name.len = server->addrs->name.len;
             peer->max_fails = server->max_fails;
@@ -2137,6 +2139,7 @@ ngx_http_upsync_init_peers(ngx_cycle_t *cycle,
 
             peer->socklen = tmp_peer[i].socklen;
             peer->name.len = tmp_peer[i].name.len;
+            peer->server.len = tmp_peer[i].name.len;
 
             if ((namep = ngx_calloc(tmp_peer[i].name.len,
                                     cycle->log)) == NULL) {
@@ -2144,6 +2147,7 @@ ngx_http_upsync_init_peers(ngx_cycle_t *cycle,
             }
             ngx_memcpy(namep, tmp_peer[i].name.data, tmp_peer[i].name.len);
             peer->name.data = namep;
+            peer->server.data = namep;
 
             peer->max_fails = tmp_peer[i].max_fails;
             peer->fail_timeout = tmp_peer[i].fail_timeout;

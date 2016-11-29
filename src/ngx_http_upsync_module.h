@@ -82,8 +82,6 @@ typedef struct {
 
 static int ngx_libc_cdecl ngx_http_upsync_chash_cmp_points(const void *one, 
     const void *two);
-static void ngx_http_upsync_chash(ngx_http_upstream_rr_peer_t *peer, 
-    ngx_http_upstream_chash_points_t *points);
 static ngx_int_t ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
     ngx_http_upstream_rr_peers_t *tmp_peers);
 static ngx_int_t ngx_http_upsync_del_chash_peer(
@@ -110,85 +108,25 @@ ngx_http_upsync_chash_cmp_points(const void *one, const void *two)
 }
 
 
-static void
-ngx_http_upsync_chash(ngx_http_upstream_rr_peer_t *peer, 
-    ngx_http_upstream_chash_points_t *points)
-{
-    size_t                                 host_len, port_len;
-    u_char                                *host, *port, c;
-    uint32_t                               hash, base_hash, pre_hash;
-    ngx_str_t                             *server;
-    ngx_uint_t                             npoints, j;
-
-    server = &peer->server;
-    if (server->len >= 5
-        && ngx_strncasecmp(server->data, (u_char *) "unix:", 5) == 0)
-    {
-        host = server->data + 5;
-        host_len = server->len - 5;
-        port = NULL;
-        port_len = 0;
-        goto done;
-    }
-
-    for (j = 0; j < server->len; j++) {
-        c = server->data[server->len - j - 1];
-
-        if (c == ':') {
-            host = server->data;
-            host_len = server->len - j - 1;
-            port = server->data + server->len - j;
-            port_len = j;
-            goto done;
-        }
-
-        if (c < '0' || c > '9') {
-            break;
-        }
-    }
-
-    host = server->data;
-    host_len = server->len;
-    port = NULL;
-    port_len = 0;
-
-    done:
-
-        ngx_crc32_init(base_hash);
-        ngx_crc32_update(&base_hash, host, host_len);
-        ngx_crc32_update(&base_hash, (u_char *) "", 1);
-        ngx_crc32_update(&base_hash, port, port_len);
-
-        pre_hash = 0;
-        npoints = peer->weight * 160;
-
-        for(j = 0; j < npoints; j++) {
-            hash = base_hash;
-
-            ngx_crc32_update(&hash, (u_char *)&pre_hash, sizeof(uint32_t));
-            ngx_crc32_final(hash);
-
-            points->point[points->number].hash = hash;
-            points->point[points->number].server = server;
-            points->number++;
-
-            pre_hash = hash;
-        }
-
-    return;
-}
-
-
 static ngx_int_t
 ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
     ngx_http_upstream_rr_peers_t *tmp_peers)
 {
-    size_t                                    old_size, new_size;
-    ngx_uint_t                                old_npoints, new_npoints, i, j;
+    size_t                                    new_size;
+    size_t                                    host_len, port_len;
+    u_char                                   *host, *port, c;
+    uint32_t                                  hash, base_hash;
+    ngx_str_t                                *server;
+    ngx_uint_t                                npoints, new_npoints;
+    ngx_uint_t                                i, j;
     ngx_http_upstream_rr_peer_t              *peer;
     ngx_http_upstream_rr_peers_t             *peers;
     ngx_http_upstream_chash_points_t         *points;
     ngx_http_upstream_hash_srv_conf_t        *hcf;
+    union {
+        uint32_t                              value;
+        u_char                                byte[4];
+    } prev_hash;
 
     hcf = ngx_http_conf_upstream_srv_conf(uscf, ngx_http_upstream_hash_module);
     if(hcf->points == NULL) {
@@ -196,13 +134,9 @@ ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
     }
 
     peers = uscf->peer.data;
-
     if (tmp_peers != NULL) {
-        old_npoints = tmp_peers->total_weight * 160;
         new_npoints = peers->total_weight * 160;
 
-        old_size = sizeof(ngx_http_upstream_chash_points_t)
-                   + sizeof(ngx_http_upstream_chash_point_t) * (old_npoints - 1);
         new_size = sizeof(ngx_http_upstream_chash_points_t)
                    + sizeof(ngx_http_upstream_chash_point_t) * (new_npoints - 1);
 
@@ -210,14 +144,77 @@ ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
         if (points == NULL ) {
             return NGX_ERROR;
         }
-
-        ngx_memcpy(points, hcf->points, old_size);
-        ngx_free(hcf->points);
-
+        ngx_free(hcf->points); /* free old points */
         hcf->points = points;
-        for (i = 0; i < peers->number - tmp_peers->number; i++) {
-            peer = &peers->peer[i];
-            ngx_http_upsync_chash(peer, points);
+
+        for (peer = peers->peer; peer; peer = peer->next) {
+            server = &peer->server;
+
+            /*
+            * Hash expression is compatible with Cache::Memcached::Fast:
+            * crc32(HOST \0 PORT PREV_HASH).
+            */
+
+            if (server->len >= 5
+                && ngx_strncasecmp(server->data, (u_char *) "unix:", 5) == 0)
+            {
+                host = server->data + 5;
+                host_len = server->len - 5;
+                port = NULL;
+                port_len = 0;
+                goto done;
+            }
+
+            for (j = 0; j < server->len; j++) {
+                c = server->data[server->len - j - 1];
+
+                if (c == ':') {
+                    host = server->data;
+                    host_len = server->len - j - 1;
+                    port = server->data + server->len - j;
+                    port_len = j;
+                    goto done;
+                }
+
+                if (c < '0' || c > '9') {
+                    break;
+                }
+            }
+
+            host = server->data;
+            host_len = server->len;
+            port = NULL;
+            port_len = 0;
+
+        done:
+
+            ngx_crc32_init(base_hash);
+            ngx_crc32_update(&base_hash, host, host_len);
+            ngx_crc32_update(&base_hash, (u_char *) "", 1);
+            ngx_crc32_update(&base_hash, port, port_len);
+
+            prev_hash.value = 0;
+            npoints = peer->weight * 160;
+
+            for (j = 0; j < npoints; j++) {
+                hash = base_hash;
+
+                ngx_crc32_update(&hash, prev_hash.byte, 4);
+                ngx_crc32_final(hash);
+
+                points->point[points->number].hash = hash;
+                points->point[points->number].server = server;
+                points->number++;
+
+#if (NGX_HAVE_LITTLE_ENDIAN)
+                prev_hash.value = hash;
+#else
+                prev_hash.byte[0] = (u_char) (hash & 0xff);
+                prev_hash.byte[1] = (u_char) ((hash >> 8) & 0xff);
+                prev_hash.byte[2] = (u_char) ((hash >> 16) & 0xff);
+                prev_hash.byte[3] = (u_char) ((hash >> 24) & 0xff);
+#endif
+            }
         }
 
     } else {
@@ -259,11 +256,19 @@ ngx_http_upsync_chash_init(ngx_http_upstream_srv_conf_t *uscf,
 static ngx_int_t
 ngx_http_upsync_del_chash_peer(ngx_http_upstream_srv_conf_t *uscf)
 {
-    ngx_uint_t                                i, j;
+    size_t                                    host_len, port_len;
+    u_char                                   *host, *port, c;
+    uint32_t                                  hash, base_hash;
+    ngx_str_t                                *server;
+    ngx_uint_t                                npoints, i, j;
     ngx_http_upstream_rr_peer_t              *peer;
     ngx_http_upstream_rr_peers_t             *peers;
     ngx_http_upstream_chash_points_t         *points;
     ngx_http_upstream_hash_srv_conf_t        *hcf;    
+    union {
+        uint32_t                              value;
+        u_char                                byte[4];
+    } prev_hash;
 
     hcf = ngx_http_conf_upstream_srv_conf(uscf, ngx_http_upstream_hash_module);
     if(hcf->points == NULL) {
@@ -275,10 +280,74 @@ ngx_http_upsync_del_chash_peer(ngx_http_upstream_srv_conf_t *uscf)
     points = hcf->points;
     points->number = 0;
 
-    for (i = 0; i < peers->number; i++) {
-        peer = &peers->peer[i];
-        ngx_http_upsync_chash(peer, points);
+    for (peer = peers->peer; peer; peer = peer->next) {
+        server = &peer->server;
 
+        /*
+         * Hash expression is compatible with Cache::Memcached::Fast:
+         * crc32(HOST \0 PORT PREV_HASH).
+         */
+
+        if (server->len >= 5
+            && ngx_strncasecmp(server->data, (u_char *) "unix:", 5) == 0)
+        {
+            host = server->data + 5;
+            host_len = server->len - 5;
+            port = NULL;
+            port_len = 0;
+            goto done;
+        }
+
+        for (j = 0; j < server->len; j++) {
+            c = server->data[server->len - j - 1];
+
+            if (c == ':') {
+                host = server->data;
+                host_len = server->len - j - 1;
+                port = server->data + server->len - j;
+                port_len = j;
+                goto done;
+            }
+
+            if (c < '0' || c > '9') {
+                break;
+            }
+        }
+
+        host = server->data;
+        host_len = server->len;
+        port = NULL;
+        port_len = 0;
+
+    done:
+
+        ngx_crc32_init(base_hash);
+        ngx_crc32_update(&base_hash, host, host_len);
+        ngx_crc32_update(&base_hash, (u_char *) "", 1);
+        ngx_crc32_update(&base_hash, port, port_len);
+
+        prev_hash.value = 0;
+        npoints = peer->weight * 160;
+
+        for (j = 0; j < npoints; j++) {
+            hash = base_hash;
+
+            ngx_crc32_update(&hash, prev_hash.byte, 4);
+            ngx_crc32_final(hash);
+
+            points->point[points->number].hash = hash;
+            points->point[points->number].server = server;
+            points->number++;
+
+#if (NGX_HAVE_LITTLE_ENDIAN)
+            prev_hash.value = hash;
+#else
+            prev_hash.byte[0] = (u_char) (hash & 0xff);
+            prev_hash.byte[1] = (u_char) ((hash >> 8) & 0xff);
+            prev_hash.byte[2] = (u_char) ((hash >> 16) & 0xff);
+            prev_hash.byte[3] = (u_char) ((hash >> 24) & 0xff);
+#endif
+        }
     }
 
     ngx_qsort(points->point,
