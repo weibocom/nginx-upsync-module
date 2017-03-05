@@ -218,7 +218,7 @@ static ngx_int_t ngx_http_upsync_check_index(
     ngx_http_upsync_server_t *upsync_server);
 static ngx_int_t ngx_http_upsync_consul_parse_json(void *upsync_server);
 static ngx_int_t ngx_http_upsync_etcd_parse_json(void *upsync_server);
-static ngx_int_t ngx_http_upsync_check_key(u_char *key);
+static ngx_int_t ngx_http_upsync_check_key(u_char *key, ngx_str_t host);
 static void *ngx_http_upsync_servers(ngx_cycle_t *cycle, 
     ngx_http_upsync_server_t *upsync_server, ngx_flag_t flag);
 static void *ngx_http_upsync_addrs(ngx_pool_t *pool, u_char *sockaddr, 
@@ -1188,16 +1188,12 @@ ngx_http_upsync_consul_parse_json(void *data)
     {
         cJSON *temp1 = cJSON_GetObjectItem(server_next, "Key");
         if (temp1 != NULL && temp1->valuestring != NULL) {
-            p = (u_char *)ngx_strrchr(temp1->valuestring, '/');
-            if (p == NULL) {
-                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                              "upsync_parse_json: %s key format is illegal, "
-                              "contains no slash ('/')", temp1->valuestring);
-                continue;
-            } else if (ngx_http_upsync_check_key(p) != NGX_OK) {
+            if (ngx_http_upsync_check_key((u_char *)temp1->valuestring,
+                                          upsync_server->host) != NGX_OK) {
                 continue;
             }
 
+            p = (u_char *)ngx_strrchr(temp1->valuestring, '/');
             upstream_conf = ngx_array_push(&ctx->upstream_conf);
             ngx_memzero(upstream_conf, sizeof(*upstream_conf));
             ngx_sprintf(upstream_conf->sockaddr, "%*s", ngx_strlen(p + 1), p + 1);
@@ -1439,16 +1435,12 @@ ngx_http_upsync_etcd_parse_json(void *data)
     {
         cJSON *temp0 = cJSON_GetObjectItem(server_next, "key");
         if (temp0 != NULL && temp0->valuestring != NULL) {
-            p = (u_char *)ngx_strrchr(temp0->valuestring, '/');
-            if (p == NULL) {
-                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                              "upsync_parse_json: %s key format is illegal, "
-                              "contains no slash ('/')", temp0->valuestring);
-                continue;
-            } else if (ngx_http_upsync_check_key(p) != NGX_OK) {
+            if (ngx_http_upsync_check_key((u_char *)temp0->valuestring,
+                                          upsync_server->host) != NGX_OK) {
                 continue;
             }
 
+            p = (u_char *)ngx_strrchr(temp0->valuestring, '/');
             upstream_conf = ngx_array_push(&ctx->upstream_conf);
             ngx_memzero(upstream_conf, sizeof(*upstream_conf));
             ngx_sprintf(upstream_conf->sockaddr, "%*s", ngx_strlen(p + 1), p + 1);
@@ -1590,22 +1582,36 @@ ngx_http_upsync_etcd_parse_json(void *data)
 
 
 static ngx_int_t
-ngx_http_upsync_check_key(u_char *key)
+ngx_http_upsync_check_key(u_char *key, ngx_str_t host)
 {
-    u_char          *last, *ip_p, *port_p;
+    u_char          *last, *ip_p, *port_p, *s_p;
     ngx_int_t        port;
 
-    port_p = (u_char *)ngx_strchr(key, ':');
-    if (port_p == NULL) {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, 
-                      "upsync_check_key: has no port in %s", key);
+    s_p = (u_char *)ngx_strrchr(key, '/');
+    if (s_p == NULL) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                      "upsync_parse_json: %s key format is illegal, "
+                      "contains no slash ('/')", key);
+        return NGX_ERROR;
+    }
+    if (*(s_p - host.len - 1) != '/') {
+        return NGX_ERROR;
+    }
+    if (ngx_strncmp((s_p - host.len), host.data, host.len) != 0) {
         return NGX_ERROR;
     }
 
-    ip_p = key + 1;
+    port_p = (u_char *)ngx_strchr(s_p, ':');
+    if (port_p == NULL) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, 
+                      "upsync_check_key: has no port in %s", s_p);
+        return NGX_ERROR;
+    }
+
+    ip_p = s_p + 1;
     if (ngx_inet_addr(ip_p, port_p - ip_p) == INADDR_NONE) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, 
-                      "upsync_check_key: invalid ip in %s", key);
+                      "upsync_check_key: invalid ip in %s", s_p);
         return NGX_ERROR;
     }
 
@@ -1613,7 +1619,7 @@ ngx_http_upsync_check_key(u_char *key)
     port = ngx_atoi(port_p + 1, last - port_p - 1);
     if (port < 1 || port > 65535) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, 
-                      "upsync_check_key: invalid port in %s", key);
+                      "upsync_check_key: invalid port in %s", s_p);
         return NGX_ERROR;
     }
 
