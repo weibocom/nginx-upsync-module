@@ -93,6 +93,9 @@ typedef struct {
     ngx_upsync_conf_t               *upsync_type_conf;
 
     ngx_http_upstream_server_t       conf_server;         /* conf server */
+    
+    ngx_resolver_t                  *resolver;            /* conf server domain resolver */
+
 } ngx_http_upsync_srv_conf_t;
 
 
@@ -157,6 +160,8 @@ static char *ngx_http_upsync_set_lb(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_http_upsync_server(ngx_conf_t *cf, 
     ngx_command_t *cmd, void *conf);
+static char *ngx_http_upsync_resolver(ngx_conf_t *cf, 
+    ngx_command_t *cmd, void *conf);
 static char *ngx_http_upsync_set_conf_dump(ngx_conf_t *cf, 
     ngx_command_t *cmd, void *conf);
 
@@ -177,6 +182,7 @@ static ngx_int_t ngx_http_upsync_init_peers(ngx_cycle_t *cycle,
 static ngx_int_t ngx_http_upsync_parse_dump_file(
     ngx_http_upsync_server_t *upsync_server);
 
+static void ngx_http_upsync_do_get_upstream_list(ngx_event_t *event);
 static void ngx_http_upsync_begin_handler(ngx_event_t *event);
 static void ngx_http_upsync_connect_handler(ngx_event_t *event);
 static void ngx_http_upsync_recv_handler(ngx_event_t *event);
@@ -189,6 +195,7 @@ static ngx_int_t ngx_http_upsync_etcd_parse_init(void *upsync_server);
 static ngx_int_t ngx_http_upsync_consul_parse_init(void *upsync_server);
 static ngx_int_t ngx_http_upsync_dump_server(
     ngx_http_upsync_server_t *upsync_server);
+static void ngx_http_upsync_resolve_handler(ngx_resolver_ctx_t *ctx);
 static ngx_int_t ngx_http_upsync_init_server(ngx_event_t *event);
 
 static ngx_int_t ngx_http_upsync_add_peers(ngx_cycle_t *cycle, 
@@ -272,7 +279,13 @@ static ngx_command_t  ngx_http_upsync_commands[] = {
         NGX_HTTP_SRV_CONF_OFFSET,
         0,
         NULL },
-
+    {
+        ngx_string("upsync_resolver"),
+        NGX_HTTP_UPS_CONF|NGX_CONF_1MORE,
+        ngx_http_upsync_resolver,
+        NGX_HTTP_SRV_CONF_OFFSET,
+        0,
+        NULL },
     {  ngx_string("upsync_lb"),
         NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
         ngx_http_upsync_set_lb,
@@ -356,6 +369,52 @@ static ngx_upsync_conf_t  ngx_upsync_types[] = {
       NULL }
 };
 
+static ngx_str_t 
+get_node_name( ngx_cycle_t* cycle )
+{
+    ngx_str_t h = cycle->hostname;
+
+    u_char* p = h.data;
+    u_char* last = h.data + h.len;
+    u_char* d = NULL;
+    ngx_int_t count = 0;
+
+    while (p < last)
+    {
+        if(*p == '.' ) {
+            d = p;
+            break;
+        }
+        p++;
+    }
+
+    if( d == NULL )
+    {
+        d = last;
+    }
+
+    p--;
+
+    while( p > h.data )
+    {
+        if( *p == '-' )
+        {
+            count++;
+            if( count == 3 )
+            {
+                d = p;
+                break;
+            }
+        }
+        p--;
+    }
+
+    ngx_str_t rslt;
+
+    rslt.data = h.data;
+    rslt.len  = d - h.data;
+    return rslt;
+}
 
 static char *
 ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
@@ -461,22 +520,54 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     ngx_memzero(&u, sizeof(ngx_url_t));
 
-    p = (u_char *)ngx_strchr(value[1].data, '/');
+    // 这里对<node_name>进行统一替换, todo: 目前仅支持一次node_name的替换
+    // 用hostname来推算出nodename
+    // hostname格式： cn-ct-gd-gz-21-23.x.mmycdn.net
+    // 输出节点名字： cn-ct-gz-gz
+    // 如果不符合规定的格式，则输出整个hostname
+    ngx_str_t v;
+    u_char* p_node_name = ngx_strnstr( value[1].data, "<node_name>", value[1].len );
+    if( p_node_name != NULL )
+    {
+        ngx_str_t node = get_node_name( cf->cycle );
+
+        ngx_log_error( NGX_LOG_DEBUG, cf->log, 0,
+                       "The node name is %V", 
+                       &node );
+
+        size_t target_len = value[1].len + node.len - 11;
+
+        v.data = ngx_palloc( cf->pool, target_len + 1 );
+        u_char* p = ngx_cpymem( v.data, value[1].data, p_node_name - value[1].data );
+
+        p = ngx_cpymem( p, node.data, node.len );
+        p = ngx_cpymem( p, 
+                        p_node_name + 11, 
+                        value[1].len - ( p_node_name - value[1].data + 11 ) ); 
+
+        v.len = target_len;
+    }
+    else
+    {
+        v = value[1];
+    }
+
+    p = (u_char *)ngx_strchr(v.data, '/');
     if (p == NULL) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "upsync_server: "
                            "please input conf_server upstream key in upstream");
         return NGX_CONF_ERROR;
     }
     upscf->upsync_send.data = p;
-    upscf->upsync_send.len = value[1].len - (p - value[1].data);
+    upscf->upsync_send.len  = v.len - (p - v.data);
 
-    u.url.data = value[1].data;
-    u.url.len = p - value[1].data;
+    u.url.data = v.data;
+    u.url.len  = p - v.data;
 
-    p = (u_char *)ngx_strchr(value[1].data, ':');
+    p = (u_char *)ngx_strchr(v.data, ':');
     if (p != NULL) {
-        upscf->upsync_host.data = value[1].data;
-        upscf->upsync_host.len = p - value[1].data;
+        upscf->upsync_host.data = v.data;
+        upscf->upsync_host.len  = p - v.data;
 
         upscf->upsync_port = ngx_atoi(p + 1, upscf->upsync_send.data - p - 1);
         if (upscf->upsync_port < 1 || upscf->upsync_port > 65535) {
@@ -486,8 +577,8 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
 
     } else {
-        upscf->upsync_host.data = value[1].data;
-        upscf->upsync_host.len = u.url.len;
+        upscf->upsync_host.data = v.data;
+        upscf->upsync_host.len  = u.url.len;
 
         upscf->upsync_port = 80;
     }
@@ -515,6 +606,28 @@ invalid:
     return NGX_CONF_ERROR;
 }
 
+static char *ngx_http_upsync_resolver(ngx_conf_t *cf, 
+                                      ngx_command_t *cmd, void *conf)
+{
+    ngx_http_upsync_srv_conf_t    *upscf;
+    upscf = ngx_http_conf_get_module_srv_conf(cf,
+                                              ngx_http_upsync_module);
+
+    ngx_str_t  *value;
+
+    if (upscf->resolver) {
+        return "is duplicate";
+    }
+
+    value = cf->args->elts;
+
+    upscf->resolver = ngx_resolver_create(cf, &value[1], cf->args->nelts - 1);
+    if (upscf->resolver == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    return NGX_CONF_OK;
+}
 
 static ngx_upsync_conf_t *
 ngx_http_upsync_get_type_conf(ngx_str_t *str)
@@ -1831,6 +1944,8 @@ ngx_http_upsync_create_srv_conf(ngx_conf_t *cf)
 
     upscf->upsync_type_conf = NGX_CONF_UNSET_PTR;
 
+    upscf->resolver = NULL;
+
     ngx_memzero(&upscf->conf_server, sizeof(upscf->conf_server));
 
     return upscf;
@@ -2385,9 +2500,9 @@ ngx_http_upsync_add_timers(ngx_cycle_t *cycle)
 
     srandom(ngx_pid);
     for (i = 0; i < upsync_ctx->upstream_num; i++) {
-        upsync_server[i].upsync_ev.handler = ngx_http_upsync_begin_handler;
-        upsync_server[i].upsync_ev.log = cycle->log;
-        upsync_server[i].upsync_ev.data = &upsync_server[i];
+        upsync_server[i].upsync_ev.handler   = ngx_http_upsync_begin_handler;
+        upsync_server[i].upsync_ev.log       = cycle->log;
+        upsync_server[i].upsync_ev.data      = &upsync_server[i];
         upsync_server[i].upsync_ev.timer_set = 0;
 
         upsync_server[i].upsync_timeout_ev.handler =
@@ -2452,11 +2567,6 @@ ngx_http_upsync_begin_handler(ngx_event_t *event)
 static void
 ngx_http_upsync_connect_handler(ngx_event_t *event)
 {
-    ngx_int_t                                 rc;
-    ngx_connection_t                         *c;
-    ngx_upsync_conf_t                        *upsync_type_conf;
-    ngx_http_upsync_server_t                 *upsync_server;
-    ngx_http_upsync_srv_conf_t               *upscf;
 
     if (ngx_http_upsync_need_exit()) {
         return;
@@ -2466,8 +2576,21 @@ ngx_http_upsync_connect_handler(ngx_event_t *event)
         return;
     }
 
-    upsync_server = event->data;
-    upscf = upsync_server->upscf;
+    ngx_http_upsync_do_get_upstream_list( event );
+
+}
+
+static void
+ngx_http_upsync_do_get_upstream_list(ngx_event_t *event)
+{
+    ngx_int_t                                rc;
+    ngx_connection_t                         *c;
+    ngx_upsync_conf_t                        *upsync_type_conf;
+    ngx_http_upsync_server_t                 *upsync_server;
+    ngx_http_upsync_srv_conf_t               *upscf;
+
+    upsync_server    = event->data;
+    upscf            = upsync_server->upscf;
     upsync_type_conf = upscf->upsync_type_conf;
 
     ngx_add_timer(&upsync_server->upsync_timeout_ev, upscf->upsync_timeout);
@@ -2918,20 +3041,21 @@ ngx_http_upsync_init_server(ngx_event_t *event)
     ngx_http_upsync_server_t                *upsync_server;
     ngx_http_upsync_srv_conf_t              *upscf;
     ngx_http_upstream_server_t              *conf_server;
+    ngx_resolver_ctx_t                      *resolve_ctx, temp;
 
-    u_char               *p, *host = NULL;
+    u_char               *p;
     size_t                len;
     ngx_str_t            *name;
-    struct addrinfo       hints, *res = NULL, *rp = NULL;
     struct sockaddr_in   *sin;
+    in_addr_t             addr;
 
     upsync_server = event->data;
-    upscf = upsync_server->upscf;
-    conf_server = &upscf->conf_server;
+    upscf         = upsync_server->upscf;
+    conf_server   = &upscf->conf_server;
+    (void)conf_server;
 
-    ctx = &upsync_server->ctx;
+    ctx           = &upsync_server->ctx;
     if (ctx->pool == NULL) {
-
         pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, ngx_cycle->log);
         if (pool == NULL) {
             ngx_log_error(NGX_LOG_ERR, event->log, 0, 
@@ -2943,86 +3067,180 @@ ngx_http_upsync_init_server(ngx_event_t *event)
 
     ngx_memzero(&upsync_server->pc, sizeof(ngx_peer_connection_t));
 
-    upsync_server->pc.get = ngx_event_get_peer;
-    upsync_server->pc.log = event->log;
+    upsync_server->pc.get       = ngx_event_get_peer;
+    upsync_server->pc.log       = event->log;
     upsync_server->pc.log_error = NGX_ERROR_ERR;
 
     upsync_server->pc.cached = 0;
     upsync_server->pc.connection = NULL;
 
-    if (ngx_inet_addr(upscf->upsync_host.data, upscf->upsync_host.len)
-            == INADDR_NONE) 
+    if( (addr = ngx_inet_addr( upscf->upsync_host.data, upscf->upsync_host.len )) != INADDR_NONE )
     {
-
-        host = ngx_pcalloc(ctx->pool, upscf->upsync_host.len + 1);
-        if (host == NULL) {
+        sin = ngx_pcalloc(ctx->pool, sizeof(struct sockaddr_in) );
+        if (sin == NULL) {
             return NGX_ERROR;
         }
 
-        (void) ngx_cpystrn(host, upscf->upsync_host.data, upscf->upsync_host.len + 1);
+        sin->sin_family = AF_INET;
+        sin->sin_addr.s_addr = addr;
+        sin->sin_port   = htons((in_port_t) upscf->upsync_port);
 
-        ngx_memzero(&hints, sizeof(struct addrinfo));
-        hints.ai_family = AF_UNSPEC;
-        hints.ai_socktype = SOCK_STREAM;
-#ifdef AI_ADDRCONFIG
-        hints.ai_flags = AI_ADDRCONFIG;
-#endif
-
-        if (getaddrinfo((char *) host, NULL, &hints, &res) != 0) {
-            res = NULL;
-            goto valid;
+        upsync_server->pc.sockaddr = (struct sockaddr *) sin;
+        upsync_server->pc.socklen  = sizeof(struct sockaddr_in);
+        
+        len = NGX_INET_ADDRSTRLEN + sizeof(":65535") - 1;
+        p = ngx_pcalloc(ctx->pool, len);
+        if (p == NULL) {
+            return NGX_ERROR;
         }
 
-        for (rp = res; rp != NULL; rp = rp->ai_next) {
+        len = ngx_sock_ntop((struct sockaddr *) sin, sizeof(struct sockaddr_in), p, len, 1);
 
-            if (rp->ai_family != AF_INET) {
+        name = ngx_pcalloc(ctx->pool, sizeof(*name));
+        if (name == NULL) {
+            return NGX_ERROR;
+        }
+        name->len = len;
+        name->data = p;
+
+        upsync_server->pc.name = name;
+
+        return NGX_OK;
+    }
+    else
+    {
+        // 进行异步域名解析
+        if( upsync_server->upscf->resolver == NULL )
+        {
+            return NGX_ERROR;
+        }
+
+        temp.name = upscf->upsync_host;
+
+        resolve_ctx = ngx_resolve_start(upsync_server->upscf->resolver, &temp );
+        if (resolve_ctx == NULL) {
+            return NGX_ERROR;
+        }
+
+        // 返回NGX_NO_RESOLVER表示无法进行域名解析
+        if (resolve_ctx == NGX_NO_RESOLVER) {
+            return NGX_ERROR;
+        }
+
+        // 设置需要解析的域名的类型与信息
+        resolve_ctx->name    = upscf->upsync_host;
+        // 解析完成后的回调函数
+        resolve_ctx->handler = ngx_http_upsync_resolve_handler;
+        resolve_ctx->timeout = 5000;
+        resolve_ctx->data    = (void*)event;
+
+        // 进行异步域名解析
+        if (ngx_resolve_name(resolve_ctx) != NGX_OK) {
+            return NGX_ERROR;
+        }
+
+        return NGX_AGAIN;
+    }
+}
+
+static void
+ngx_http_upsync_resolve_handler(ngx_resolver_ctx_t *ctx)
+{
+    ngx_http_upsync_server_t    *upsync_server;
+    ngx_upsync_conf_t           *upsync_type_conf;
+    struct sockaddr             *addr;
+    ngx_uint_t                   i;
+    struct sockaddr_in          *sin;
+    ngx_event_t                 *event = (ngx_event_t*)ctx->data; 
+    ngx_http_upsync_srv_conf_t  *upscf;
+    ngx_http_upsync_ctx_t       *ups_ctx;
+    size_t                       len;
+    u_char*                      p = NULL;
+    ngx_str_t                   *name;
+    ngx_int_t                    ok = 0;
+
+    upsync_server    = (ngx_http_upsync_server_t*)event->data;
+    upscf            = upsync_server->upscf;
+    ups_ctx          = &upsync_server->ctx;
+    upsync_type_conf = upsync_server->upscf->upsync_type_conf;
+
+    if (ctx->state) {
+        ngx_log_error(NGX_LOG_ERR, event->log, 0,
+                      "\"%V\" could not be resolved (%i: %s)",
+                      &ctx->name, ctx->state,
+                      ngx_resolver_strerror(ctx->state));
+        goto lbl_done;
+    } else {
+        /* AF_INET only */
+        if( ctx->naddrs == 0 )
+        {
+            ngx_log_error(NGX_LOG_ERR, event->log, 0,
+                          "\"%V\" resolve failed, nothing got.",
+                          &ctx->name );
+            goto lbl_done;
+        }
+
+        for (i = 0; i < ctx->naddrs && !ok; i++) {
+            addr = ctx->addrs[i].sockaddr;
+ 
+            if( addr->sa_family != AF_INET )
+            {
                 continue;
             }
 
-            sin = ngx_pcalloc(ctx->pool, rp->ai_addrlen);
+            sin = ngx_pcalloc(ups_ctx->pool, sizeof(struct sockaddr_in));
             if (sin == NULL) {
-                goto valid;
+                ngx_log_error(NGX_LOG_ERR, event->log, 0,
+                              "Failed to allocate new sockaddr_in, \"%V\" resolve failed.",
+                              &ctx->name );
+                goto lbl_done;
             }
 
-            ngx_memcpy(sin, rp->ai_addr, rp->ai_addrlen);
-            sin->sin_port = htons((in_port_t) upscf->upsync_port);
+            *sin            = *(struct sockaddr_in*)addr;
+            sin->sin_port   = htons((in_port_t) upscf->upsync_port);
 
             upsync_server->pc.sockaddr = (struct sockaddr *) sin;
-            upsync_server->pc.socklen = rp->ai_addrlen;
-
+            upsync_server->pc.socklen  = sizeof(struct sockaddr_in);
+            
             len = NGX_INET_ADDRSTRLEN + sizeof(":65535") - 1;
-            p = ngx_pcalloc(ctx->pool, len);
+            p = ngx_pcalloc(ups_ctx->pool, len);
             if (p == NULL) {
-                goto valid;
+                ngx_log_error(NGX_LOG_ERR, event->log, 0,
+                              "Failed to allocate new string for resolved socket name, \"%V\" resolve failed.",
+                              &ctx->name );
+                goto lbl_done;
             }
 
-            len = ngx_sock_ntop((struct sockaddr *) sin, rp->ai_addrlen, p, len, 1);
+            len = ngx_sock_ntop((struct sockaddr *) sin, sizeof(struct sockaddr_in), p, len, 1);
 
-            name = ngx_pcalloc(ctx->pool, sizeof(*name));
+            name = ngx_pcalloc(ups_ctx->pool, sizeof(*name));
             if (name == NULL) {
-                goto valid;
+                ngx_log_error(NGX_LOG_ERR, event->log, 0,
+                              "Failed to allocate new string for resolved socket name, \"%V\" resolve failed.",
+                              &ctx->name );
+                goto lbl_done;
             }
             name->len = len;
             name->data = p;
 
             upsync_server->pc.name = name;
 
-            freeaddrinfo(res);
-            return NGX_OK;
+            // 域名解析成功
+            ngx_http_upsync_do_get_upstream_list( event );
+            ok = 1;
         }
     }
+ 
+lbl_done:
+    //不管成功失败都要执行
+    ngx_resolve_name_done(ctx);
 
-valid:
-
-    upsync_server->pc.sockaddr = conf_server->addrs[0].sockaddr;
-    upsync_server->pc.socklen = conf_server->addrs[0].socklen;
-    upsync_server->pc.name = &conf_server->addrs[0].name;
-
-    if (res != NULL) {
-        freeaddrinfo(res);
+    if( !ok )
+    {
+        // 域名解析没有成功，需要清理现场，
+        // 后续还是要重启定时器，进行下一次的获取upstream列表的任务
+        upsync_type_conf->clean( upsync_server );
     }
-
-    return NGX_OK;
 }
 
 
@@ -3511,11 +3729,33 @@ ngx_http_create_client(ngx_cycle_t *cycle, ngx_http_upsync_server_t *upsync_serv
 static ngx_int_t
 ngx_http_client_conn(ngx_http_conf_client *client) 
 {
+    struct timeval tm;    
+    fd_set set; 
+    tm.tv_sec  = 3;
+    tm.tv_usec = 0;
+
+    FD_ZERO(&set);     
     if (connect(client->sd, (struct sockaddr *)&(client->addr), 
-                sizeof(struct sockaddr)) == NGX_ERROR) {
+                sizeof(struct sockaddr)) == NGX_ERROR) 
+    {
+        while( ngx_errno == EINTR )
+        {
+            // 被signal中断了
+            FD_SET( client->sd, &set);     
+
+            if( select( client->sd + 1, NULL, &set, NULL, &tm ) > 0 )    
+            {
+                if( FD_ISSET( client->sd, &set ) )
+                {
+                    goto lbl_ok;
+                }
+
+            }
+        }
         return NGX_ERROR;
     }
 
+lbl_ok:
     client->connected = 1;
     return NGX_OK;
 }
@@ -3566,6 +3806,10 @@ ngx_http_client_send(ngx_http_conf_client *client,
         tmp_send = send(client->sd, request + send_num, size - send_num, 0);
         /* TODO if tmp send is 0? */
         if (tmp_send < 0) {
+            if( ngx_errno == EINTR )
+            {
+                continue;
+            }
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                           "ngx_http_client_send: send byte %d", tmp_send);
             return NGX_ERROR;
@@ -3590,7 +3834,15 @@ ngx_http_client_recv(ngx_http_conf_client *client, char **data, int size)
 
     while(recv_num < size || size == 0) {  
         tmp_recv = recv(client->sd, buff, ngx_pagesize, 0);
-        if (tmp_recv <= 0) {
+        if (tmp_recv < 0) {
+            if( ngx_errno == EINTR )
+            {
+                continue;
+            }
+            break;
+        }
+        else if(tmp_recv == 0 )
+        {
             break;
         }
 
