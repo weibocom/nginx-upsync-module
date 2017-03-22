@@ -55,8 +55,7 @@ http {
 
         # all backend server will pull from consul when startup and will delete fake server
         upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
-        upsync_
-        192.158.15.130 192.168.15.248 valid=300s;
+        upsync_resolver 192.158.15.130 192.168.15.248 valid=300s;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
     }
 
