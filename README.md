@@ -54,6 +54,7 @@ http {
 
         # all backend server will pull from consul when startup and will delete fake server
         upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
+        upsync_resolver 192.158.15.130 192.168.15.248 valid=300s;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
     }
 
@@ -198,7 +199,10 @@ The parameters' meanings are:
 * upsync_type
 
     pulling servers from conf server type.
-
+    
+* upsync_resolver
+    upsync server hostname resolver, can add one or more dns server.
+    
 * strong_dependency
 
     when nginx start up if depending on consul, and consul is not working, nginx will boot failed, otherwise booting normally.
