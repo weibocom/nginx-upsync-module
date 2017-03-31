@@ -19,11 +19,11 @@
 #define ngx_strtoull(nptr, endptr, base) strtoull((const char *) nptr, \
                                                   (char **) endptr, (int) base)
 
-#define NGX_INDEX_HEARDER "X-Consul-Index"
-#define NGX_INDEX_HEARDER_LEN 14
+#define NGX_INDEX_HEADER "X-Consul-Index"
+#define NGX_INDEX_HEADER_LEN 14
 
-#define NGX_INDEX_ETCD_HEARDER "X-Etcd-Index"
-#define NGX_INDEX_ETCD_HEARDER_LEN 12
+#define NGX_INDEX_ETCD_HEADER "X-Etcd-Index"
+#define NGX_INDEX_ETCD_HEADER_LEN 12
 
 #define NGX_MAX_HEADERS 20
 #define NGX_MAX_ELEMENT_SIZE 512
