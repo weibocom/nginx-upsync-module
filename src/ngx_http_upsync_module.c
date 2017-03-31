@@ -1399,7 +1399,7 @@ ngx_http_upsync_consul_services_parse_json(void *data)
         cJSON *addr = cJSON_GetObjectItem(server_next, "ServiceAddress");
         cJSON *port = cJSON_GetObjectItem(server_next, "ServicePort");
         size_t addr_len, port_len;
-        char buf[8];
+        char port_buf[8];
 
         if (addr == NULL || addr->valuestring == NULL
             || addr->valuestring[0] == '\0')
@@ -1412,11 +1412,11 @@ ngx_http_upsync_consul_services_parse_json(void *data)
         if (port == NULL || port->valueint < 1 || port->valueint > 65535) {
             continue;
         }
-        ngx_memzero(buf, 8);
-        ngx_sprintf(buf, "%d", port->valueint);
+        ngx_memzero(port_buf, 8);
+        ngx_sprintf(port_buf, "%d", port->valueint);
 
         addr_len = ngx_strlen(addr->valuestring);
-        port_len = ngx_strlen(buf);
+        port_len = ngx_strlen(port_buf);
 
         if (addr_len + port_len + 2 > NGX_SOCKADDRLEN) {
             continue;
@@ -1430,7 +1430,7 @@ ngx_http_upsync_consul_services_parse_json(void *data)
 
         ngx_memcpy(upstream_conf->sockaddr, addr->valuestring, addr_len);
         ngx_memcpy(upstream_conf->sockaddr + addr_len, ":", 1);
-        ngx_memcpy(upstream_conf->sockaddr + addr_len + 1, buf, port_len);
+        ngx_memcpy(upstream_conf->sockaddr + addr_len + 1, port_buf, port_len);
 
         /* default server attributes */
         upstream_conf->weight = 1;
