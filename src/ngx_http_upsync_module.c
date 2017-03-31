@@ -1375,8 +1375,6 @@ ngx_http_upsync_consul_services_parse_json(void *data)
 
     ctx = &upsync_server->ctx;
     buf = &ctx->body;
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "buf: %s", buf->pos);
 
     cJSON *root = cJSON_Parse((char *)buf->pos);
     if (root == NULL) {
