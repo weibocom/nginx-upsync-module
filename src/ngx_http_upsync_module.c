@@ -1458,9 +1458,7 @@ ngx_http_upsync_consul_services_parse_json(void *data)
             if (ngx_strncmp(tag, "weight=", 7) == 0) {
                 attr_value = ngx_atoi(tag + 7, (size_t)ngx_strlen(tag) - 7);
 
-                if (attr_value == NGX_ERROR) {
-                    continue; 
-                } else if (attr_value <= 0) {
+                if (attr_value == NGX_ERROR || attr_value <= 0) {
                     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                           "upsync_parse_json: \"weight\" value is invalid"
                           ", setting default value 1");
@@ -1472,9 +1470,7 @@ ngx_http_upsync_consul_services_parse_json(void *data)
             if (ngx_strncmp(tag, "max_fails=", 10) == 0) {
                 attr_value = ngx_atoi(tag + 10, (size_t)ngx_strlen(tag) - 10);
 
-                if (attr_value == NGX_ERROR) {
-                    continue; 
-                } else if (attr_value < 0) {
+                if (attr_value == NGX_ERROR || attr_value < 0) {
                     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                           "upsync_parse_json: \"max_fails\" value is invalid"
                           ", setting default value 2");
@@ -1487,9 +1483,7 @@ ngx_http_upsync_consul_services_parse_json(void *data)
                 ngx_str_t  value = {ngx_strlen(tag) - 13, tag + 13};
                 attr_value = ngx_parse_time(&value, 0);
 
-                if (attr_value == NGX_ERROR) {
-                    continue; 
-                } else if (attr_value < 0) {
+                if (attr_value == NGX_ERROR || attr_value < 0) {
                     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                           "upsync_parse_json: \"fail_timeout\" value is invalid"
                           ", setting default value 10");
