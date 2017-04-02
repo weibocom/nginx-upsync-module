@@ -1444,6 +1444,10 @@ ngx_http_upsync_consul_services_parse_json(void *data)
         upstream_conf->backup = 0;
 
         tags = cJSON_GetObjectItem(server_next, "ServiceTags");
+        if (tags == NULL) {
+            continue;
+        }
+
         for (tag_next = tags->child; tag_next != NULL; 
              tag_next = tag_next->next) 
         {
