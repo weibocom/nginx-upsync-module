@@ -1372,6 +1372,7 @@ ngx_http_upsync_consul_services_parse_json(void *data)
     ngx_http_upsync_ctx_t          *ctx;
     ngx_http_upsync_conf_t         *upstream_conf = NULL;
     ngx_http_upsync_server_t       *upsync_server = data;
+    ngx_int_t                       attr_value;
 
     ctx = &upsync_server->ctx;
     buf = &ctx->body;
@@ -1396,11 +1397,11 @@ ngx_http_upsync_consul_services_parse_json(void *data)
     for (server_next = root->child; server_next != NULL; 
          server_next = server_next->next) 
     {
-        cJSON *addr = cJSON_GetObjectItem(server_next, "ServiceAddress");
-        cJSON *port = cJSON_GetObjectItem(server_next, "ServicePort");
+        cJSON *addr, *port, *tags, *tag_next;
         size_t addr_len, port_len;
-        char port_buf[8];
+        u_char port_buf[8];
 
+        addr = cJSON_GetObjectItem(server_next, "ServiceAddress");
         if (addr == NULL || addr->valuestring == NULL
             || addr->valuestring[0] == '\0')
         {
@@ -1409,6 +1410,8 @@ ngx_http_upsync_consul_services_parse_json(void *data)
                 continue;
             }
         }
+
+        port = cJSON_GetObjectItem(server_next, "ServicePort");
         if (port == NULL || port->valueint < 1 || port->valueint > 65535) {
             continue;
         }
@@ -1432,13 +1435,72 @@ ngx_http_upsync_consul_services_parse_json(void *data)
         ngx_memcpy(upstream_conf->sockaddr + addr_len, ":", 1);
         ngx_memcpy(upstream_conf->sockaddr + addr_len + 1, port_buf, port_len);
 
-        /* default server attributes */
+        /* default value, server attribute */
         upstream_conf->weight = 1;
         upstream_conf->max_fails = 2;
         upstream_conf->fail_timeout = 10;
 
         upstream_conf->down = 0;
         upstream_conf->backup = 0;
+
+        tags = cJSON_GetObjectItem(server_next, "ServiceTags");
+        for (tag_next = tags->child; tag_next != NULL; 
+             tag_next = tag_next->next) 
+        {
+            u_char *tag = (u_char *) tag_next->valuestring;
+            if (tag == NULL) {
+                continue;
+            }
+            if (ngx_strncmp(tag, "weight=", 7) == 0) {
+                attr_value = ngx_atoi(tag + 7, (size_t)ngx_strlen(tag) - 7);
+
+                if (attr_value == NGX_ERROR) {
+                    continue; 
+                } else if (attr_value <= 0) {
+                    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                          "upsync_parse_json: \"weight\" value is invalid"
+                          ", setting default value 1");
+                    continue; 
+                } else {
+                    upstream_conf->weight = attr_value;
+                }
+            }
+            if (ngx_strncmp(tag, "max_fails=", 10) == 0) {
+                attr_value = ngx_atoi(tag + 10, (size_t)ngx_strlen(tag) - 10);
+
+                if (attr_value == NGX_ERROR) {
+                    continue; 
+                } else if (attr_value < 0) {
+                    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                          "upsync_parse_json: \"max_fails\" value is invalid"
+                          ", setting default value 2");
+                    continue; 
+                } else {
+                    upstream_conf->max_fails = attr_value;
+                }
+            }
+            if (ngx_strncmp(tag, "fail_timeout=", 13) == 0) {
+                ngx_str_t  value = {ngx_strlen(tag) - 13, tag + 13};
+                attr_value = ngx_parse_time(&value, 0);
+
+                if (attr_value == NGX_ERROR) {
+                    continue; 
+                } else if (attr_value < 0) {
+                    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                          "upsync_parse_json: \"fail_timeout\" value is invalid"
+                          ", setting default value 10");
+                    continue; 
+                } else {
+                    upstream_conf->fail_timeout = attr_value;
+                }
+            }
+            if (ngx_strncmp(tag, "down", 4) == 0 && tag[4] == '\0') {
+                upstream_conf->down = 1;
+            }
+            if (ngx_strncmp(tag, "backup", 6) == 0 && tag[6] == '\0') {
+                upstream_conf->backup = 1;
+            }
+        }
     }
 
     cJSON_Delete(root);
