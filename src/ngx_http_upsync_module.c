@@ -1481,7 +1481,7 @@ ngx_http_upsync_consul_services_parse_json(void *data)
             }
             if (ngx_strncmp(tag, "fail_timeout=", 13) == 0) {
                 ngx_str_t  value = {ngx_strlen(tag) - 13, tag + 13};
-                attr_value = ngx_parse_time(&value, 0);
+                attr_value = ngx_parse_time(&value, 1);
 
                 if (attr_value == NGX_ERROR || attr_value < 0) {
                     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
