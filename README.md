@@ -266,7 +266,7 @@ Data can be taken from key/value store or service catalog. In the first case par
         upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
 ```
 
-In the second case it mast be *consul_services*.
+In the second case it must be *consul_services*.
 
 ```nginx-consul
         upsync 127.0.0.1:8500/v1/catalog/service/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul_services strong_dependency=off;
