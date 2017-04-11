@@ -1210,6 +1210,10 @@ ngx_http_upsync_consul_parse_json(void *data)
         }
         temp1 = NULL;
 
+        if (upstream_conf == NULL) {
+            continue;
+        }
+
         temp1 = cJSON_GetObjectItem(server_next, "Value");
         if (temp1 != NULL && temp1->valuestring != NULL) {
 
