@@ -153,7 +153,7 @@ http {
 Description
 ======
 
-This module provides a method to discover backend servers. Supporting dynamicly adding or deleting backend server through consul and dynamicly adjusting backend servers weight, module will timely pull new backend server list from consul to upsync nginx ip router. Nginx needn't reload. Having some advantages than others:
+This module provides a method to discover backend servers. Supporting dynamiclly adding or deleting backend server through consul and dynamicly adjusting backend servers weight, module will timely pull new backend server list from consul to upsync nginx ip router. Nginx needn't reload. Having some advantages than others:
 
 * timely
 
