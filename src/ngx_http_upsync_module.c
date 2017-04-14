@@ -1431,6 +1431,7 @@ ngx_http_upsync_consul_services_parse_json(void *data)
 
         upstream_conf = ngx_array_push(&ctx->upstream_conf);
         if (upstream_conf == NULL) {
+            cJSON_Delete(root);
             return NGX_ERROR;
         }
         ngx_memzero(upstream_conf, sizeof(*upstream_conf));
@@ -1464,8 +1465,8 @@ ngx_http_upsync_consul_services_parse_json(void *data)
 
                 if (attr_value == NGX_ERROR || attr_value <= 0) {
                     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                          "upsync_parse_json: \"weight\" value is invalid"
-                          ", setting default value 1");
+                                  "upsync_parse_json: \"weight\" value is "
+                                  "invalid, setting default value 1");
                     continue; 
                 } else {
                     upstream_conf->weight = attr_value;
@@ -1476,8 +1477,8 @@ ngx_http_upsync_consul_services_parse_json(void *data)
 
                 if (attr_value == NGX_ERROR || attr_value < 0) {
                     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                          "upsync_parse_json: \"max_fails\" value is invalid"
-                          ", setting default value 2");
+                                  "upsync_parse_json: \"max_fails\" value is "
+                                  "invalid, setting default value 2");
                     continue; 
                 } else {
                     upstream_conf->max_fails = attr_value;
@@ -1489,8 +1490,8 @@ ngx_http_upsync_consul_services_parse_json(void *data)
 
                 if (attr_value == NGX_ERROR || attr_value < 0) {
                     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                          "upsync_parse_json: \"fail_timeout\" value is invalid"
-                          ", setting default value 10");
+                                  "upsync_parse_json: \"fail_timeout\" value is "
+                                  "invalid, setting default value 10");
                     continue; 
                 } else {
                     upstream_conf->fail_timeout = attr_value;
