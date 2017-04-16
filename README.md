@@ -1,7 +1,7 @@
 Name
 ====
 
-nginx-upsync-module - Nginx C module, sync upstreams from consul or others, dynamiclly modify backend-servers attribute(weight, max_fails,...), needn't reload nginx.
+nginx-upsync-module - Nginx C module, sync upstreams from consul or others, dynamically modify backend-servers attribute(weight, max_fails,...), needn't reload nginx.
 
 It may not always be convenient to modify configuration files and restart NGINX. For example, if you are experiencing large amounts of traffic and high load, restarting NGINX and reloading the configuration at that point further increases load on the system and can temporarily degrade performance.
 
@@ -16,7 +16,7 @@ Table of Contents
 * [Status](#status)
 * [Synopsis](#synopsis)
 * [Description](#description)
-* [Directives](#functions)
+* [Directives](#directives)
     * [upsync](#upsync)
         * [upsync_interval](#upsync_interval)
         * [upsync_timeout](#upsync_timeout)
@@ -153,7 +153,7 @@ http {
 Description
 ======
 
-This module provides a method to discover backend servers. Supporting dynamicly adding or deleting backend server through consul and dynamicly adjusting backend servers weight, module will timely pull new backend server list from consul to upsync nginx ip router. Nginx needn't reload. Having some advantages than others:
+This module provides a method to discover backend servers. Supporting dynamicly adding or deleting backend server through consul and dynamically adjusting backend servers weight, module will timely pull new backend server list from consul to upsync nginx ip router. Nginx needn't reload. Having some advantages than others:
 
 * timely
 
@@ -165,13 +165,13 @@ This module provides a method to discover backend servers. Supporting dynamicly 
 
 * stability
 
-      Even if one pulling failed, it will pull next upsync_interval, so guaranteing backend server stably provides service. And support dumping the latest config to location, so even if consul hung up, and nginx can be reload anytime. 
+      Even if one pulling failed, it will pull next upsync_interval, so guarantying backend server stably provides service. And support dumping the latest config to location, so even if consul hung up, and nginx can be reload anytime. 
 
 * health_check
 
       nginx-upsync-module support adding or deleting servers health check, needing nginx_upstream_check_module. Recommending nginx-upsync-module + nginx_upstream_check_module.
 
-Diretives
+Directives
 ======
 
 upsync
@@ -260,7 +260,19 @@ show all upstreams.
 Consul_interface
 ======
 
-you can add or delete backend server through consul_ui or http_interface.
+Data can be taken from key/value store or service catalog. In the first case parameter upsync_type of directive must be *consul*. For example
+
+```nginx-consul
+        upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
+```
+
+In the second case it must be *consul_services*.
+
+```nginx-consul
+        upsync 127.0.0.1:8500/v1/catalog/service/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul_services strong_dependency=off;
+```
+
+You can add or delete backend server through consul_ui or http_interface. Below are examples for key/value store.
 
 http_interface example:
 
