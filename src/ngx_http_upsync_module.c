@@ -1737,20 +1737,25 @@ ngx_http_upsync_etcd_parse_json(void *data)
 static ngx_int_t
 ngx_http_upsync_check_key(u_char *key, ngx_str_t host)
 {
-    u_char          *last, *ip_p, *port_p, *s_p;
+    u_char          *last, *ip_p, *port_p, *u_p, *s_p;
     ngx_int_t        port;
+
+    u_p = (u_char *)ngx_strstr(key, host.data);
+    if (u_p == NULL) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                      "upsync_parse_json: %s is illegal, "
+                      "dont contains subkey %V", key, &host);
+        return NGX_ERROR;
+    }
+    if (*(u_p + host.len) != '/' || *(u_p - 1) != '/') {
+        return NGX_ERROR;
+    }
 
     s_p = (u_char *)ngx_strrchr(key, '/');
     if (s_p == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "upsync_parse_json: %s key format is illegal, "
-                      "contains no slash ('/')", key);
-        return NGX_ERROR;
-    }
-    if (*(s_p - host.len - 1) != '/') {
-        return NGX_ERROR;
-    }
-    if (ngx_strncmp((s_p - host.len), host.data, host.len) != 0) {
+                      "upsync_parse_json: %s is illegal, "
+                      "dont contains slash \'/\'", key);
         return NGX_ERROR;
     }
 
