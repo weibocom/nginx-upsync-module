@@ -53,7 +53,7 @@ http {
         server 127.0.0.1:11111;
 
         # all backend server will pull from consul when startup and will delete fake server
-        upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
+        upsync 127.0.0.1:8500/v1/kv/upstreams/test/ upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
     }
 
@@ -86,8 +86,8 @@ http {
         # fake server otherwise ngx_http_upstream will report error when startup
         server 127.0.0.1:11111;
 
-        # all backend server will pull from consul when startup and will delete fake server
-        upsync 127.0.0.1:8500/v2/keys/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=etcd strong_dependency=off;
+        # all backend server will pull from etcd when startup and will delete fake server
+        upsync 127.0.0.1:2379/v2/keys/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=etcd strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
     }
 
@@ -122,7 +122,7 @@ http {
         server 127.0.0.1:11111;
 
         # all backend server will pull from consul when startup and will delete fake server
-        upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
+        upsync 127.0.0.1:8500/v1/kv/upstreams/test/ upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
         upsync_lb least_conn; //hash_ketama;
     }
@@ -153,19 +153,19 @@ http {
 Description
 ======
 
-This module provides a method to discover backend servers. Supporting dynamicly adding or deleting backend server through consul and dynamically adjusting backend servers weight, module will timely pull new backend server list from consul to upsync nginx ip router. Nginx needn't reload. Having some advantages than others:
+This module provides a method to discover backend servers. Supporting dynamicly adding or deleting backend server through consul or etcd and dynamically adjusting backend servers weight, module will timely pull new backend server list from consul or etcd to upsync nginx ip router. Nginx needn't reload. Having some advantages than others:
 
 * timely
 
-      module send key to consul with index, consul will compare it with its index, if index doesn't change connection will hang five minutes, in the period any operation to the key-value, will feed back rightaway.
+      module send key to consul/etcd with index, consul/etcd will compare it with its index, if index doesn't change connection will hang five minutes, in the period any operation to the key-value, will feed back rightaway.
 
 * performance
 
-      Pulling from consul equal a request to nginx, updating ip router nginx needn't reload, so affecting nginx performance is little.
+      Pulling from consul/etcd equal a request to nginx, updating ip router nginx needn't reload, so affecting nginx performance is little.
 
 * stability
 
-      Even if one pulling failed, it will pull next upsync_interval, so guarantying backend server stably provides service. And support dumping the latest config to location, so even if consul hung up, and nginx can be reload anytime. 
+      Even if one pulling failed, it will pull next upsync_interval, so guarantying backend server stably provides service. And support dumping the latest config to location, so even if consul/etcd hung up, and nginx can be reload anytime. 
 
 * health_check
 
@@ -177,7 +177,7 @@ Directives
 upsync
 -----------
 ```
-syntax: upsync $consul.api.com:$port/v1/kv/upstreams/$upstream_name [upsync_type=consul] [upsync_interval=second/minutes] [upsync_timeout=second/minutes] [strong_dependency=off/on]
+syntax: upsync $consul/etcd.api.com:$port/v1/kv/upstreams/$upstream_name [upsync_type=consul/etcd] [upsync_interval=second/minutes] [upsync_timeout=second/minutes] [strong_dependency=off/on]
 ```
 default: none, if parameters omitted, default parameters are upsync_interval=5s upsync_timeout=6m strong_dependency=off
 
@@ -189,11 +189,11 @@ The parameters' meanings are:
 
 * upsync_interval
 
-    pulling servers from consul interval time.
+    pulling servers from consul/etcd interval time.
 
 * upsync_timeout
 
-    pulling servers from consul request timeout.
+    pulling servers from consul/etcd request timeout.
 
 * upsync_type
 
@@ -201,7 +201,7 @@ The parameters' meanings are:
 
 * strong_dependency
 
-    when nginx start up if depending on consul, and consul is not working, nginx will boot failed, otherwise booting normally.
+    when nginx start up if depending on consul/etcd, and consul/etcd is not working, nginx will boot failed, otherwise booting normally.
 
 [Back to TOC](#table-of-contents)       
 
@@ -320,11 +320,11 @@ Etcd_interface
 
 you can add or delete backend server through http_interface.
 
-mainly like consul, http_interface example:
+mainly like etcd, http_interface example:
 
 * add
 ```
-    curl -X PUT http://$consul_ip:$port/v2/keys/upstreams/$upstream_name/$backend_ip:$backend_port
+    curl -X PUT http://$etcd_ip:$port/v2/keys/upstreams/$upstream_name/$backend_ip:$backend_port
 ```
     default: weight=1 max_fails=2 fail_timeout=10 down=0 backup=0;
 
@@ -368,7 +368,7 @@ http {
         server 127.0.0.1:11111;
 
         # all backend server will pull from consul when startup and will delete fake server
-        upsync 127.0.0.1:8500/v1/kv/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
+        upsync 127.0.0.1:8500/v1/kv/upstreams/test/ upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
 
         check interval=1000 rise=2 fall=2 timeout=3000 type=http default_down=false;
@@ -419,7 +419,7 @@ Compatibility
 
 Master branch is compatible with nginx-1.9+.
 
-The branch of nginx-upsync-1.8.x is compatible with Nginx-1.8.x.
+The branch of nginx-upsync-1.8.x is compatible with Nginx-1.8.x and with tengine-2.2.0.
 
 [Back to TOC](#table-of-contents)
 
