@@ -1594,13 +1594,14 @@ ngx_http_upsync_check_key(u_char *key, ngx_str_t host)
                       "contains no slash ('/')", key);
         return NGX_ERROR;
     }
+/*
     if (*(s_p - host.len - 1) != '/') {
         return NGX_ERROR;
     }
     if (ngx_strncmp((s_p - host.len), host.data, host.len) != 0) {
         return NGX_ERROR;
     }
-
+*/
     port_p = (u_char *)ngx_strchr(s_p, ':');
     if (port_p == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, 
@@ -2078,7 +2079,8 @@ ngx_http_upsync_init_process(ngx_cycle_t *cycle)
         pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, ngx_cycle->log);
         if (pool == NULL) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                          "upsync_init_process: recv not enough memory");
+                          "upsync_init_process: recv failed,"
+                          "server no enough memory");
             return NGX_ERROR;
         }
         ctx->pool = pool;
@@ -2093,7 +2095,8 @@ ngx_http_upsync_init_process(ngx_cycle_t *cycle)
 
         if (status != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
-                          "upsync_init_process: pull upstream conf failed");
+                          "upsync_init_process: pull upstream \"%V\" conf failed",
+                          &upsync_server->host);
 
             if (upsync_server[i].upscf->strong_dependency == 0) {
                 ngx_http_upsync_parse_dump_file(&upsync_server[i]);
@@ -2392,7 +2395,9 @@ ngx_http_upsync_parse_dump_file(ngx_http_upsync_server_t *upsync_server)
         if (ngx_http_upsync_add_peers((ngx_cycle_t *)ngx_cycle, 
                                        upsync_server) != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                          "upsync_parse_dump_file: upstream add server error");
+                          "upsync_parse_dump_file: "
+                          "upstream add \"%V\" server error",
+                          &upsync_server->host);
             return NGX_ERROR;
         }
     }
@@ -2403,7 +2408,9 @@ ngx_http_upsync_parse_dump_file(ngx_http_upsync_server_t *upsync_server)
         if (ngx_http_upsync_del_peers((ngx_cycle_t *)ngx_cycle, 
                                        upsync_server) != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                          "upsync_parse_dump_file: upstream del server error");
+                          "upsync_parse_dump_file: "
+                          "upstream del \"%V\" server error",
+                          &upsync_server->host);
             return NGX_ERROR;
         }
     }
@@ -2736,8 +2743,10 @@ ngx_http_upsync_recv_handler(ngx_event_t *event)
 
 upsync_recv_fail:
     ngx_log_error(NGX_LOG_ERR, event->log, 0,
-                  "upsync_recv: recv error with upsync_server: %V", 
-                  upsync_server->pc.name);
+                  "upsync_recv: recv error with upsync_server: %V,"
+                  "upstream info : %V",
+                  upsync_server->pc.name,
+                  &upsync_server->upscf->upsync_send);
 
     ngx_http_upsync_clean_event(upsync_server);
 }
