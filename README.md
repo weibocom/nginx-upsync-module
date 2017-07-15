@@ -177,7 +177,7 @@ Directives
 upsync
 -----------
 ```
-syntax: upsync $consul/etcd.api.com:$port/v1/kv/upstreams/$upstream_name [upsync_type=consul/etcd] [upsync_interval=second/minutes] [upsync_timeout=second/minutes] [strong_dependency=off/on]
+syntax: upsync $consul/etcd.api.com:$port/v1/kv/upstreams/$upstream_name/ [upsync_type=consul/etcd] [upsync_interval=second/minutes] [upsync_timeout=second/minutes] [strong_dependency=off/on]
 ```
 default: none, if parameters omitted, default parameters are upsync_interval=5s upsync_timeout=6m strong_dependency=off
 
@@ -444,6 +444,7 @@ make install
 
 if you support nginx-upstream-check-module
 ```bash
+patch -p1 < /path/to/nginx-upstream-check-module/check_1.7.5+.patch
 ./configure --add-module=/path/to/nginx-upstream-check-module --add-module=/path/to/nginx-upsync-module
 make
 make install
