@@ -182,6 +182,8 @@ static void ngx_http_upsync_begin_handler(ngx_event_t *event);
 static void ngx_http_upsync_connect_handler(ngx_event_t *event);
 static void ngx_http_upsync_recv_handler(ngx_event_t *event);
 static void ngx_http_upsync_send_handler(ngx_event_t *event);
+static void ngx_http_upsync_recv_empty_handler(ngx_event_t *event);
+static void ngx_http_upsync_send_empty_handler(ngx_event_t *event);
 static void ngx_http_upsync_timeout_handler(ngx_event_t *event);
 static void ngx_http_upsync_clean_event(void *upsync_server);
 static ngx_int_t ngx_http_upsync_etcd_parse_init(void *upsync_server);
@@ -2630,12 +2632,14 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
                        "upsync_send: send done.");
     }
 
+    c->write->handler = ngx_http_upsync_send_empty_handler;
+
     return;
 
 upsync_send_fail:
     ngx_log_error(NGX_LOG_ERR, event->log, 0,
-                  "upsync_send: send error with upsync_server: %V", 
-                  upsync_server->pc.name);
+                  "upsync_send: send upstream \"%V\" error", 
+                  &upsync_server->host);
 
     ngx_http_upsync_clean_event(upsync_server);
 }
@@ -2730,11 +2734,10 @@ ngx_http_upsync_recv_handler(ngx_event_t *event)
         }
     }
 
-    if (ctx->recv.last != ctx->recv.pos) {
+    if (upsync_type_conf->init(upsync_server) == NGX_OK) {
+        ngx_http_upsync_process(upsync_server);
 
-        if (upsync_type_conf->init(upsync_server) == NGX_OK) {
-            ngx_http_upsync_process(upsync_server);
-        }
+        c->read->handler = ngx_http_upsync_recv_empty_handler;
     }
 
     upsync_type_conf->clean(upsync_server);
@@ -2743,12 +2746,24 @@ ngx_http_upsync_recv_handler(ngx_event_t *event)
 
 upsync_recv_fail:
     ngx_log_error(NGX_LOG_ERR, event->log, 0,
-                  "upsync_recv: recv error with upsync_server: %V,"
-                  "upstream info : %V",
-                  upsync_server->pc.name,
-                  &upsync_server->upscf->upsync_send);
+                  "upsync_recv: recv error with upstream \"%V\"",
+                  &upsync_server->host);
 
     ngx_http_upsync_clean_event(upsync_server);
+}
+
+
+static void
+ngx_http_upsync_send_empty_handler(ngx_event_t *event)
+{
+        /* void */
+}
+
+
+static void
+ngx_http_upsync_recv_empty_handler(ngx_event_t *event)
+{
+        /* void */
 }
 
 
@@ -2778,7 +2793,8 @@ ngx_http_upsync_consul_parse_init(void *data)
             parser = NULL;
         }
          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                       "upsync_consul_parse_init: parsed body size is wrong");
+                       "upsync_consul_parse_init: parsed upstream \"%V\" wrong",
+                       &upsync_server->host);
         return NGX_ERROR;
     }
 
@@ -2789,6 +2805,17 @@ ngx_http_upsync_consul_parse_init(void *data)
             ctx->body.last = state.http_body + ngx_strlen(state.http_body);
 
         }
+    } else {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                      "upsync_consul_parse_init: recv upstream \"%V\" error; "
+                      "http_status: %d", &upsync_server->host, parser->status_code);
+
+        if (parser != NULL) {
+            ngx_free(parser);
+            parser = NULL;
+        }
+
+        return NGX_ERROR;
     }
 
     if (parser != NULL) {
@@ -2828,18 +2855,31 @@ ngx_http_upsync_etcd_parse_init(void *data)
     parsed = http_parser_execute(parser, &settings, buf, ngx_strlen(buf));
     if (parsed != ngx_strlen(buf)) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "upsync_etcd_parse_init: parsed body size is wrong");
+                       "upsync_etcd_parse_init: parsed upstream \"%V\" wrong",
+                       &upsync_server->host);
         return NGX_ERROR;
     }
 
     if (ngx_strncmp(state.status, "OK", 2) == 0
-            || ngx_strncmp(state.status, "Bad", 3) == 0) {
+        || ngx_strncmp(state.status, "Bad", 3) == 0) {
 
         if (ngx_strlen(state.http_body) != 0) {
             ctx->body.pos = state.http_body;
             ctx->body.last = state.http_body + ngx_strlen(state.http_body);
 
         }
+
+    } else {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                      "upsync_etcd_parse_init: recv upstream \"%V\" error; "
+                      "http_status: %d", &upsync_server->host, parser->status_code);
+
+        if (parser != NULL) {
+            ngx_free(parser);
+            parser = NULL;
+        }
+
+        return NGX_ERROR;
     }
 
     if (parser != NULL) {
