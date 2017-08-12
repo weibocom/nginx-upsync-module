@@ -649,6 +649,10 @@ ngx_http_upsync_process(ngx_http_upsync_server_t *upsync_server)
     ctx = &upsync_server->ctx;
     upsync_type_conf = upsync_server->upscf->upsync_type_conf;
 
+    if (ngx_http_upsync_need_exit()) {
+        return;
+    }
+
     if (ngx_http_upsync_check_index(upsync_server) == NGX_ERROR) {
         return;
     }
@@ -783,6 +787,10 @@ ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
 
     uscf = upsync_server->uscf;
 
+    if (ngx_http_upsync_need_exit()) {
+        return NGX_OK;
+    }
+
     servers = ngx_http_upsync_servers(cycle, upsync_server, NGX_ADD);
     if (servers == NULL) {
         return NGX_ERROR;
@@ -914,6 +922,10 @@ ngx_http_upsync_add_filter(ngx_cycle_t *cycle,
 
     ctx = &upsync_server->ctx;
 
+    if (ngx_http_upsync_need_exit()) {
+        return;
+    }
+
     if (ngx_array_init(&ctx->add_upstream, ctx->pool, 16,
                        sizeof(*add_upstream)) != NGX_OK)
     {
@@ -966,6 +978,10 @@ ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
 
     len = sizeof(struct sockaddr);
     uscf = upsync_server->uscf;
+
+    if (ngx_http_upsync_need_exit()) {
+        return NGX_OK;
+    }
 
     servers = ngx_http_upsync_servers(cycle, upsync_server, NGX_DEL);
     if (servers == NULL) {
@@ -1064,6 +1080,10 @@ ngx_http_upsync_del_filter(ngx_cycle_t *cycle,
     ngx_http_upstream_srv_conf_t      *uscf;
 
     ctx = &upsync_server->ctx;
+
+    if (ngx_http_upsync_need_exit()) {
+        return;
+    }
 
     if (ngx_array_init(&ctx->del_upstream, ctx->pool, 16,
                        sizeof(*del_upstream)) != NGX_OK) {
@@ -2760,8 +2780,8 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
 
 upsync_send_fail:
     ngx_log_error(NGX_LOG_ERR, event->log, 0,
-                  "upsync_send: send error with upsync_server: %V", 
-                  upsync_server->pc.name);
+                  "upsync_send: send upstream \"%V\" error",
+                  &upsync_server->host);
 
     ngx_http_upsync_clean_event(upsync_server);
 }
@@ -2856,13 +2876,10 @@ ngx_http_upsync_recv_handler(ngx_event_t *event)
         }
     }
 
-    if (ctx->recv.last != ctx->recv.pos) {
+    if (upsync_type_conf->init(upsync_server) == NGX_OK) {
+        ngx_http_upsync_process(upsync_server);
 
-        if (upsync_type_conf->init(upsync_server) == NGX_OK) {
-            ngx_http_upsync_process(upsync_server);
-
-            c->read->handler = ngx_http_upsync_recv_empty_handler;
-        }
+        c->read->handler = ngx_http_upsync_recv_empty_handler;
     }
 
     upsync_type_conf->clean(upsync_server);
@@ -2907,19 +2924,19 @@ ngx_http_upsync_consul_parse_init(void *data)
     }
 
     buf = (char *)ctx->recv.pos;
-
     ctx->body.pos = ctx->body.last = NULL;
 
     parsed = http_parser_execute(parser, &settings, buf, ngx_strlen(buf));
     if (parsed != ngx_strlen(buf)) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                      "upsync_consul_parse_init: parsed upstream \"%V\" wrong",
+                      &upsync_server->host);
 
         if (parser != NULL) {
             ngx_free(parser);
             parser = NULL;
         }
 
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "upsync_consul_parse_init: parsed body size is wrong");
         return NGX_ERROR;
     }
 
@@ -2929,19 +2946,24 @@ ngx_http_upsync_consul_parse_init(void *data)
             ctx->body.pos = state.http_body;
             ctx->body.last = state.http_body + ngx_strlen(state.http_body);
 
+            *(ctx->body.last + 1) = '\0';
         }
+    } else {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                      "upsync_consul_parse_init: recv upstream \"%V\" error; "
+                      "http_status: %d", &upsync_server->host, parser->status_code);
+
+        if (parser != NULL) {
+            ngx_free(parser);
+            parser = NULL;
+        }
+
+        return NGX_ERROR;
     }
 
     if (parser != NULL) {
         ngx_free(parser);
         parser = NULL;
-    }
-
-    if (ctx->body.pos != ctx->body.last) {
-        *(ctx->body.last + 1) = '\0';
-
-    } else {
-        return NGX_ERROR;
     }
 
     return NGX_OK;
@@ -2963,24 +2985,43 @@ ngx_http_upsync_etcd_parse_init(void *data)
     }
 
     buf = (char *)ctx->recv.pos;
-
     ctx->body.pos = ctx->body.last = NULL;
 
     parsed = http_parser_execute(parser, &settings, buf, ngx_strlen(buf));
     if (parsed != ngx_strlen(buf)) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "upsync_etcd_parse_init: parsed body size is wrong");
+                      "upsync_consul_parse_init: parsed upstream \"%V\" wrong",
+                      &upsync_server->host);
+
+        if (parser != NULL) {
+            ngx_free(parser);
+            parser = NULL;
+        }
+
         return NGX_ERROR;
     }
 
     if (ngx_strncmp(state.status, "OK", 2) == 0
-            || ngx_strncmp(state.status, "Bad", 3) == 0) {
+        || ngx_strncmp(state.status, "Bad", 3) == 0) {
 
         if (ngx_strlen(state.http_body) != 0) {
             ctx->body.pos = state.http_body;
             ctx->body.last = state.http_body + ngx_strlen(state.http_body);
 
+            *(ctx->body.last + 1) = '\0';
         }
+
+    } else {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                      "upsync_consul_parse_init: recv upstream \"%V\" error; "
+                      "http_status: %d", &upsync_server->host, parser->status_code);
+
+        if (parser != NULL) {
+            ngx_free(parser);
+            parser = NULL;
+        }
+
+        return NGX_ERROR;
     }
 
     if (parser != NULL) {
@@ -2988,13 +3029,6 @@ ngx_http_upsync_etcd_parse_init(void *data)
         parser = NULL;
     }
     
-    if (ctx->body.pos != ctx->body.last) {
-        *(ctx->body.last + 1) = '\0';
-
-    } else {
-        return NGX_ERROR;
-    }
-
     return NGX_OK;
 }
 
