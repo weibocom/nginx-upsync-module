@@ -638,6 +638,10 @@ ngx_http_upsync_process(ngx_http_upsync_server_t *upsync_server)
     ngx_upsync_conf_t           *upsync_type_conf;
     ngx_http_upsync_ctx_t       *ctx;
 
+    if (ngx_http_upsync_need_exit()) {
+        return;
+    }
+
     ctx = &upsync_server->ctx;
     upsync_type_conf = upsync_server->upscf->upsync_type_conf;
 
@@ -768,6 +772,10 @@ ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
 
     uscf = upsync_server->uscf;
 
+    if (ngx_http_upsync_need_exit()) {
+        return NGX_OK;
+    }
+
     servers = ngx_http_upsync_servers(cycle, upsync_server, NGX_ADD);
     if (servers == NULL) {
         return NGX_ERROR;
@@ -878,6 +886,10 @@ ngx_http_upsync_add_filter(ngx_cycle_t *cycle,
 
     ctx = &upsync_server->ctx;
 
+    if (ngx_http_upsync_need_exit()) {
+        return;
+    }
+
     if (ngx_array_init(&ctx->add_upstream, ctx->pool, 16,
                        sizeof(*add_upstream)) != NGX_OK)
     {
@@ -930,6 +942,10 @@ ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
 
     len = sizeof(struct sockaddr);
     uscf = upsync_server->uscf;
+
+    if (ngx_http_upsync_need_exit()) {
+        return NGX_OK;
+    }
 
     servers = ngx_http_upsync_servers(cycle, upsync_server, NGX_DEL);
     if (servers == NULL) {
@@ -1055,6 +1071,10 @@ ngx_http_upsync_del_filter(ngx_cycle_t *cycle,
     ngx_http_upstream_srv_conf_t      *uscf;
 
     ctx = &upsync_server->ctx;
+
+    if (ngx_http_upsync_need_exit()) {
+        return;
+    }
 
     if (ngx_array_init(&ctx->del_upstream, ctx->pool, 16,
                        sizeof(*del_upstream)) != NGX_OK) {
@@ -3149,7 +3169,9 @@ ngx_http_upsync_event_init(ngx_http_upstream_rr_peers_t *tmp_peers,
 static void
 ngx_http_upsync_add_delay_delete(ngx_event_t *event)
 {
-    ngx_uint_t                       i;
+
+    ngx_msec_t                       t;
+    ngx_uint_t                       i, conn_interval;
     ngx_connection_t                *c;
     ngx_delay_event_t               *delay_event;
     ngx_http_request_t              *r = NULL;
@@ -3163,7 +3185,8 @@ ngx_http_upsync_add_delay_delete(ngx_event_t *event)
     tmp_peers = delay_event->data;
 
     c = ngx_cycle->connections;
-    for (i = 0; i < ngx_cycle->connection_n; i++) {
+    conn_interval = ngx_cycle->connection_n / 10;
+    for (i = 0; i < ngx_cycle->connection_n; i += conn_interval) {
 
         if (c[i].fd == (ngx_socket_t) -1) {
             continue;
@@ -3177,14 +3200,16 @@ ngx_http_upsync_add_delay_delete(ngx_event_t *event)
 
         if (r) {
             if (r->start_sec < delay_event->start_sec) {
-                ngx_add_timer(&delay_event->delay_delete_ev, NGX_DELAY_DELETE);
+                t = ngx_random() % NGX_DELAY_DELETE + NGX_DELAY_DELETE;
+                ngx_add_timer(&delay_event->delay_delete_ev, t);
                 return;
             }
 
             if (r->start_sec == delay_event->start_sec) {
 
                 if (r->start_msec <= delay_event->start_msec) {
-                    ngx_add_timer(&delay_event->delay_delete_ev, NGX_DELAY_DELETE);
+                    t = ngx_random() % NGX_DELAY_DELETE + NGX_DELAY_DELETE;
+                    ngx_add_timer(&delay_event->delay_delete_ev, t);
                     return;
                 }
             }
@@ -3207,7 +3232,8 @@ ngx_http_upsync_add_delay_delete(ngx_event_t *event)
 static void
 ngx_http_upsync_del_delay_delete(ngx_event_t *event)
 {
-    ngx_uint_t                       i;
+    ngx_msec_t                       t;
+    ngx_uint_t                       i, conn_interval;
     ngx_connection_t                *c;
     ngx_delay_event_t               *delay_event;
     ngx_http_request_t              *r = NULL;
@@ -3224,7 +3250,8 @@ ngx_http_upsync_del_delay_delete(ngx_event_t *event)
     tmp_peers = delay_event->data;
 
     c = ngx_cycle->connections;
-    for (i = 0; i < ngx_cycle->connection_n; i++) {
+    conn_interval = ngx_cycle->connection_n / 10;
+    for (i = 0; i < ngx_cycle->connection_n; i += conn_interval) {
 
         if (c[i].fd == (ngx_socket_t) -1) {
             continue;
@@ -3238,14 +3265,16 @@ ngx_http_upsync_del_delay_delete(ngx_event_t *event)
 
         if (r) {
             if (r->start_sec < delay_event->start_sec) {
-                ngx_add_timer(&delay_event->delay_delete_ev, NGX_DELAY_DELETE);
+                t = ngx_random() % NGX_DELAY_DELETE + NGX_DELAY_DELETE;
+                ngx_add_timer(&delay_event->delay_delete_ev, t);
                 return;
             }
 
             if (r->start_sec == delay_event->start_sec) {
 
                 if (r->start_msec <= delay_event->start_msec) {
-                    ngx_add_timer(&delay_event->delay_delete_ev, NGX_DELAY_DELETE);
+                    t = ngx_random() % NGX_DELAY_DELETE + NGX_DELAY_DELETE;
+                    ngx_add_timer(&delay_event->delay_delete_ev, t);
                     return;
                 }
             }

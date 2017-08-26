@@ -29,7 +29,7 @@
 
 #define NGX_MAX_VALUE 65535
 
-#define NGX_DELAY_DELETE 75 * 1000
+#define NGX_DELAY_DELETE 60 * 60 * 1000     //75 * 1000
 
 #define NGX_ADD 0
 #define NGX_DEL 1
