@@ -801,7 +801,7 @@ ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
             goto invalid;
         }
         ngx_memcpy(peers, tmp_peers, sizeof(ngx_http_upstream_rr_peers_t) +
-                   + sizeof(ngx_http_upstream_rr_peer_t) * (tmp_peers->number));
+                   + sizeof(ngx_http_upstream_rr_peer_t) * (tmp_peers->number - 1));
 
         m = tmp_peers->number;
         for (i = 0; i < servers->nelts; i++) {
