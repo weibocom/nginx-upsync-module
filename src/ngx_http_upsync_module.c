@@ -2221,14 +2221,15 @@ ngx_http_upsync_init_process(ngx_cycle_t *cycle)
     upsync_server = upsync_ctx->upsync_server;
 
     for (i = 0; i < upsync_ctx->upstream_num; i++) {
-        upsync_type_conf = upsync_server[i].upscf->upsync_type_conf;
+
+        ngx_queue_init(&upsync_server[i]delete_ev);
+        if (upsync_server[i].upscf->strong_dependency == 0) {
+            continue;
+        }
 
         ctx = &upsync_server[i].ctx;
         ngx_memzero(ctx, sizeof(*ctx));
-
-        if (ngx_http_upsync_init_peers(cycle, &upsync_server[i]) == NGX_ERROR) {
-            return NGX_ERROR;
-        }
+        upsync_type_conf = upsync_server[i].upscf->upsync_type_conf;
 
         pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, ngx_cycle->log);
         if (pool == NULL) {
@@ -2251,15 +2252,6 @@ ngx_http_upsync_init_process(ngx_cycle_t *cycle)
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
                           "upsync_init_process: pull upstream \"%V\" conf failed",
                           &upsync_server->host);
-
-            if (upsync_server[i].upscf->strong_dependency == 0) {
-                ngx_http_upsync_parse_dump_file(&upsync_server[i]);
-
-                ngx_destroy_pool(pool);
-                ctx->pool = NULL;
-
-                continue;
-            }
             return NGX_ERROR;
         }
 
@@ -2307,7 +2299,6 @@ ngx_http_upsync_init_peers(ngx_cycle_t *cycle,
     struct sockaddr *saddr = NULL;
     len = sizeof(struct sockaddr);
 
-    ngx_queue_init(&upsync_server->delete_ev);
 
     if (uscf->peer.data == NULL) {
         return NGX_ERROR;
@@ -3274,6 +3265,7 @@ ngx_http_upsync_event_init(ngx_http_upstream_rr_peer_t *peer,
 static void
 ngx_http_upsync_del_delay_delete(ngx_event_t *event)
 {
+    ngx_msec_t                       t;
     ngx_uint_t                       i;
     ngx_connection_t                *c;
     ngx_delay_event_t               *delay_event;
@@ -3291,6 +3283,7 @@ ngx_http_upsync_del_delay_delete(ngx_event_t *event)
     peer = delay_event->data;
 
     c = ngx_cycle->connections;
+    conn_interval = ngx_cycle->connection_n / 30;
     for (i = 0; i < ngx_cycle->connection_n; i++) {
 
         if (c[i].fd == (ngx_socket_t) -1) {
@@ -3305,14 +3298,16 @@ ngx_http_upsync_del_delay_delete(ngx_event_t *event)
 
         if (r) {
             if (r->start_sec < delay_event->start_sec) {
-                ngx_add_timer(&delay_event->delay_delete_ev, NGX_DELAY_DELETE);
+                t = ngx_random() % NGX_DELAY_DELETE + NGX_DELAY_DELETE;
+                ngx_add_timer(&delay_event->delay_delete_ev, t);
                 return;
             }
 
             if (r->start_sec == delay_event->start_sec) {
 
                 if (r->start_msec <= delay_event->start_msec) {
-                    ngx_add_timer(&delay_event->delay_delete_ev, NGX_DELAY_DELETE);
+                    t = ngx_random() % NGX_DELAY_DELETE + NGX_DELAY_DELETE;
+                    ngx_add_timer(&delay_event->delay_delete_ev, t);
                     return;
                 }
             }
