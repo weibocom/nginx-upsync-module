@@ -49,12 +49,11 @@ nginx-consul:
 ```nginx-consul
 http {
     upstream test {
-        # fake server otherwise ngx_http_upstream will report error when startup
-        server 127.0.0.1:11111;
-
         # all backend server will pull from consul when startup and will delete fake server
         upsync 127.0.0.1:8500/v1/kv/upstreams/test/ upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
+
+        include /usr/local/nginx/conf/servers/servers_test.conf;
     }
 
     upstream bar {
@@ -83,12 +82,11 @@ nginx-etcd:
 ```nginx-etcd
 http {
     upstream test {
-        # fake server otherwise ngx_http_upstream will report error when startup
-        server 127.0.0.1:11111;
-
         # all backend server will pull from etcd when startup and will delete fake server
         upsync 127.0.0.1:2379/v2/keys/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=etcd strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
+
+        include /usr/local/nginx/conf/servers/servers_test.conf;
     }
 
     upstream bar {
@@ -118,13 +116,13 @@ upsync_lb:
 http {
     upstream test {
         least_conn; //hash $uri consistent;
-        # fake server otherwise ngx_http_upstream will report error when startup
-        server 127.0.0.1:11111;
 
         # all backend server will pull from consul when startup and will delete fake server
         upsync 127.0.0.1:8500/v1/kv/upstreams/test/ upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
         upsync_lb least_conn; //hash_ketama;
+
+        include /usr/local/nginx/conf/servers/servers_test.conf;
     }
 
     upstream bar {
@@ -149,6 +147,8 @@ http {
     }
 }
 ```
+
+NOTE: recomending strong_dependency is configed off and the first time included file include all the servers.
 
 Description
 ======
@@ -201,7 +201,7 @@ The parameters' meanings are:
 
 * strong_dependency
 
-    when nginx start up if depending on consul/etcd, and consul/etcd is not working, nginx will boot failed, otherwise booting normally.
+    when strong_dependency is on, nginx will pull servers from consul/etcd every time when nginx start up or reload.
 
 [Back to TOC](#table-of-contents)       
 
