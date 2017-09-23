@@ -49,7 +49,6 @@ nginx-consul:
 ```nginx-consul
 http {
     upstream test {
-        # all backend server will pull from consul when startup and will delete fake server
         upsync 127.0.0.1:8500/v1/kv/upstreams/test/ upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
 
@@ -82,7 +81,6 @@ nginx-etcd:
 ```nginx-etcd
 http {
     upstream test {
-        # all backend server will pull from etcd when startup and will delete fake server
         upsync 127.0.0.1:2379/v2/keys/upstreams/test upsync_timeout=6m upsync_interval=500ms upsync_type=etcd strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
 
@@ -117,7 +115,6 @@ http {
     upstream test {
         least_conn; //hash $uri consistent;
 
-        # all backend server will pull from consul when startup and will delete fake server
         upsync 127.0.0.1:8500/v1/kv/upstreams/test/ upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
         upsync_lb least_conn; //hash_ketama;
@@ -364,10 +361,6 @@ check-conf:
 ```check-conf
 http {
     upstream test {
-        # fake server otherwise ngx_http_upstream will report error when startup
-        server 127.0.0.1:11111;
-
-        # all backend server will pull from consul when startup and will delete fake server
         upsync 127.0.0.1:8500/v1/kv/upstreams/test/ upsync_timeout=6m upsync_interval=500ms upsync_type=consul strong_dependency=off;
         upsync_dump_path /usr/local/nginx/conf/servers/servers_test.conf;
 
