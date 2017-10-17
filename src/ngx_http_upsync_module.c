@@ -755,7 +755,8 @@ ngx_http_upsync_check_index(ngx_http_upsync_server_t *upsync_server)
     upsync_type_conf = upsync_server->upscf->upsync_type_conf;
 
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL
-        || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_SERVICES)
+        || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_SERVICES
+        || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_HEALTH)
     {
         for (i = 0; i < state.num_headers; i++) {
 
@@ -1727,6 +1728,22 @@ ngx_http_upsync_consul_health_parse_json(void *data)
         upstream_conf->down = 0;
         upstream_conf->backup = 0;
 
+        checks = cJSON_GetObjectItem(server_next, "Checks");
+
+        for (check_next = checks->child; check_next != NULL;
+             check_next = check_next->next)
+        {
+            cJSON *check_status;
+            check_status = cJSON_GetObjectItem(check_next, "Status");
+
+            if (check_status == NULL || check_status->valuestring == NULL
+                || check_status->valuestring[0] == '\0'
+                || ngx_strncmp(check_status->valuestring, "passing", 7) != 0)
+            {
+              upstream_conf->down = 1;
+            }
+        }
+
         tags = cJSON_GetObjectItem(service, "Tags");
         if (tags == NULL) {
             continue;
@@ -1784,22 +1801,6 @@ ngx_http_upsync_consul_health_parse_json(void *data)
             }
         }
 
-        checks = cJSON_GetObjectItem(server_next, "Checks");
-
-        for (check_next = checks->child; check_next != NULL;
-             check_next = check_next->next)
-        {
-            cJSON *check_status;
-
-            check_status = cJSON_GetObjectItem(check_next, "Status");
-
-            if (check_status == NULL || check_status->valuestring == NULL
-                || check_status->valuestring[0] == '\0'
-                || ngx_strncmp(check_status->valuestring, "passing", 7) != 0)
-            {
-              upstream_conf->down = 1;
-            }
-        }
     }
 
     cJSON_Delete(root);
@@ -2720,7 +2721,8 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
     ngx_memzero(request, ngx_pagesize);
 
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL
-        || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_SERVICES)
+        || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_SERVICES
+        || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_HEALTH)
     {
         ngx_sprintf(request, "GET %V?recurse&index=%uL HTTP/1.0\r\nHost: %V\r\n"
                     "Accept: */*\r\n\r\n", 
@@ -3539,6 +3541,7 @@ ngx_http_upsync_clean_event(void *data)
 
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL
         || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_SERVICES
+        || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_HEALTH
         || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_ETCD)
     {
         if (parser != NULL) {
@@ -3619,6 +3622,7 @@ ngx_http_upsync_clear_all_events(ngx_cycle_t *cycle)
 
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL
         || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_SERVICES
+        || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_HEALTH
         || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_ETCD) {
 
         if (parser != NULL) {
@@ -3780,7 +3784,8 @@ ngx_http_client_send(ngx_http_conf_client *client,
     ngx_memzero(request, ngx_pagesize);
 
     if (upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL
-        || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_SERVICES)
+        || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_SERVICES
+        || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_HEALTH)
     {
         ngx_sprintf(request, "GET %V?recurse&index=%uL HTTP/1.0\r\nHost: %V\r\n"
                     "Accept: */*\r\n\r\n", 
