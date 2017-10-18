@@ -1681,19 +1681,20 @@ ngx_http_upsync_consul_health_parse_json(void *data)
     for (server_next = root->child; server_next != NULL;
          server_next = server_next->next)
     {
-        cJSON *addr, *checks, *check_next, *port, *service, *tags, *tag_next;
+        cJSON *addr, *checks, *check_next, *node, *port, *service, *tags, *tag_next;
         size_t addr_len, port_len;
         u_char port_buf[8];
 
+        node = cJSON_GetObjectItem(server_next, "Node");
 
-        service = cJSON_GetObjectItem(server_next, "Service");
-
-        addr = cJSON_GetObjectItem(service, "Address");
+        addr = cJSON_GetObjectItem(node, "Address");
         if (addr == NULL || addr->valuestring == NULL
             || addr->valuestring[0] == '\0')
         {
             continue;
         }
+
+        service = cJSON_GetObjectItem(server_next, "Service");
 
         port = cJSON_GetObjectItem(service, "Port");
         if (port == NULL || port->valueint < 1 || port->valueint > 65535) {
@@ -1741,6 +1742,7 @@ ngx_http_upsync_consul_health_parse_json(void *data)
                 || ngx_strncmp(check_status->valuestring, "passing", 7) != 0)
             {
               upstream_conf->down = 1;
+              break;
             }
         }
 
