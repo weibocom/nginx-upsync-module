@@ -269,6 +269,14 @@ In the second case it must be *consul_services*.
         upsync 127.0.0.1:8500/v1/catalog/service/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul_services strong_dependency=off;
 ```
 
+In the third case, it must be *consul_health*:
+
+```nginx-consul
+        upsync 127.0.0.1:8500/v1/health/service/test upsync_timeout=6m upsync_interval=500ms upsync_type=consul_health strong_dependency=off;
+```
+
+Services with failing health checks are marked as down with the health api.
+
 You can add or delete backend server through consul_ui or http_interface. Below are examples for key/value store.
 
 http_interface example:
