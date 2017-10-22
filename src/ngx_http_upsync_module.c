@@ -3357,7 +3357,7 @@ ngx_http_upsync_del_delay_delete(ngx_event_t *event)
 
 
 static size_t
-ngx_strnlen(const char *s, size_t maxlen)
+ngx_http_upsync_strnlen(const char *s, size_t maxlen)
 {
     const char *p;
 
@@ -3378,8 +3378,8 @@ ngx_strlncat(char *dst, size_t len, const char *src, size_t n)
     size_t rlen;
     size_t ncpy;
 
-    slen = ngx_strnlen(src, n);
-    dlen = ngx_strnlen(dst, len);
+    slen = ngx_http_upsync_strnlen(src, n);
+    dlen = ngx_http_upsync_strnlen(dst, len);
 
     if (dlen < len) {
         rlen = len - dlen;
