@@ -2726,7 +2726,7 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
         || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_SERVICES
         || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_HEALTH)
     {
-        ngx_sprintf(request, "GET %V?recurse&index=%uL HTTP/1.0\r\nHost: %V\r\n"
+        ngx_sprintf(request, "GET %V?recurse&passing&index=%uL HTTP/1.0\r\nHost: %V\r\n"
                     "Accept: */*\r\n\r\n", 
                     &upscf->upsync_send, upsync_server->index, 
                     &upscf->upsync_host);
@@ -3789,7 +3789,7 @@ ngx_http_client_send(ngx_http_conf_client *client,
         || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_SERVICES
         || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_HEALTH)
     {
-        ngx_sprintf(request, "GET %V?recurse&index=%uL HTTP/1.0\r\nHost: %V\r\n"
+        ngx_sprintf(request, "GET %V?recurse&passing&index=%uL HTTP/1.0\r\nHost: %V\r\n"
                     "Accept: */*\r\n\r\n", 
                     &upscf->upsync_send, upsync_server->index, 
                     &upscf->conf_server.name);
