@@ -1284,7 +1284,7 @@ ngx_http_upsync_replace_peers(ngx_cycle_t *cycle,
             ngx_http_upsync_chash_init(uscf, NULL);
         }
 
-        ngx_pfree(cycle->pool, tmp_peer);
+        //ngx_pfree(cycle->pool, tmp_peer);  not free for causing address invalid.
     }
 
     return NGX_OK;
