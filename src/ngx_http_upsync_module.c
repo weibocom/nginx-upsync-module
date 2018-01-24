@@ -1009,7 +1009,7 @@ ngx_http_upsync_diff_filter(ngx_cycle_t *cycle,
             return;
         }
 
-        ngx_memzero(flag_array.elts, sizeof(ngx_uint_t) * flag_array.size);
+        ngx_memzero(flag_array.elts, sizeof(ngx_uint_t) * flag_array.nalloc);
         flags = (ngx_uint_t*)flag_array.elts;
     }
 
