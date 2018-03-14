@@ -1735,29 +1735,6 @@ ngx_http_upsync_consul_services_parse_json(void *data)
             }
         }
 
-        tags = cJSON_GetObjectItem(server_next, "NodeMeta");
-        if (tags != NULL) {
-            cJSON *upsync_weight;
-
-            upsync_weight = cJSON_GetObjectItem(tags, "upsync_weight");
-            if (upsync_weight != NULL) {
-                if (upsync_weight->valuestring != NULL) {
-                    attr_value = ngx_atoi((u_char *) upsync_weight->valuestring,
-                                          (size_t) ngx_strlen(upsync_weight->valuestring));
-
-                    if (attr_value == NGX_ERROR || attr_value <= 0) {
-                        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                                      "upsync_parse_json: \"upsync_weight\" value is invalid: \"%s\", "
-                                              "setting default value 1",
-                                      upsync_weight->valuestring);
-                        continue;
-                    } else {
-                        upstream_conf->weight = attr_value;
-                    }
-                }
-            }
-        }
-
 #if (NGX_DEBUG)
         ngx_log_debug(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0, "%s: sockaddr: %s", __FUNCTION__, upstream_conf->sockaddr);
         ngx_log_debug(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0, "%s: weight: %d", __FUNCTION__, upstream_conf->weight);
@@ -1922,28 +1899,6 @@ ngx_http_upsync_consul_health_parse_json(void *data)
             }
         }
 
-        tags = cJSON_GetObjectItem(node, "Meta");
-        if (tags != NULL) {
-            cJSON *upsync_weight;
-
-            upsync_weight = cJSON_GetObjectItem(tags, "upsync_weight");
-            if (upsync_weight != NULL) {
-                if (upsync_weight->valuestring != NULL) {
-                    attr_value = ngx_atoi((u_char *) upsync_weight->valuestring,
-                                          (size_t) ngx_strlen(upsync_weight->valuestring));
-
-                    if (attr_value == NGX_ERROR || attr_value <= 0) {
-                        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                                      "upsync_parse_json: \"upsync_weight\" value is invalid: \"%s\", "
-                                              "setting default value 1",
-                                      upsync_weight->valuestring);
-                        continue;
-                    } else {
-                        upstream_conf->weight = attr_value;
-                    }
-                }
-            }
-        }
 #if (NGX_DEBUG)
         ngx_log_debug(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0, "%s: sockaddr: %s", __FUNCTION__, upstream_conf->sockaddr);
         ngx_log_debug(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0, "%s: weight: %d", __FUNCTION__, upstream_conf->weight);
