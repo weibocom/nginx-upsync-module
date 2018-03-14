@@ -1846,7 +1846,7 @@ ngx_http_upsync_consul_health_parse_json(void *data)
         }
 
         tags = cJSON_GetObjectItem(service, "Tags");
-        if (tags == NULL) {
+        if (tags != NULL) {
             for (tag_next = tags->child; tag_next != NULL;
                  tag_next = tag_next->next) {
                 u_char *tag = (u_char *) tag_next->valuestring;
