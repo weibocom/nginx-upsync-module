@@ -181,9 +181,9 @@ static const char *parse_string(cJSON *item,const char *str)
 					len=4;if (uc<0x80) len=1;else if (uc<0x800) len=2;else if (uc<0x10000) len=3; ptr2+=len;
 					
 					switch (len) {
-						case 4: *--ptr2 =((uc | 0x80) & 0xBF); uc >>= 6;
-						case 3: *--ptr2 =((uc | 0x80) & 0xBF); uc >>= 6;
-						case 2: *--ptr2 =((uc | 0x80) & 0xBF); uc >>= 6;
+						case 4: *--ptr2 =((uc | 0x80) & 0xBF); uc >>= 6; /* FALLTHRU */
+						case 3: *--ptr2 =((uc | 0x80) & 0xBF); uc >>= 6; /* FALLTHRU */
+						case 2: *--ptr2 =((uc | 0x80) & 0xBF); uc >>= 6; /* FALLTHRU */
 						case 1: *--ptr2 =(uc | firstByteMark[len]);
 					}
 					ptr2+=len;
