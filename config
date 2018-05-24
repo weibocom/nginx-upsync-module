@@ -7,7 +7,7 @@ ngx_module_incs=$ngx_addon_dir/src
 _HTTP_UPSYNC_SRCS="\
   $ngx_addon_dir/src/ngx_http_upsync_module.c \
   $ngx_addon_dir/src/cJSON.c \
-  $ngx_addon_dir/src/ngx_http_parser.c \
+  $ngx_addon_dir/src/http_parser.c \
 "
 
 have=NGX_HTTP_UPSYNC . auto/have

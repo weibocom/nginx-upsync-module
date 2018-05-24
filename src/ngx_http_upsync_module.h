@@ -7,7 +7,7 @@
 #include <ngx_config.h>
 
 #include "cJSON.h"
-#include "ngx_http_parser.h"
+#include "http_parser.h"
 
 #define ngx_strrchr(s1, c)              strrchr((const char *) s1, (int) c)
 #define ngx_ftruncate(fd, offset)       ftruncate(fd, offset)

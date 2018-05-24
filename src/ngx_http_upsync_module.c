@@ -2570,9 +2570,9 @@ ngx_http_upsync_init_shm_mutex(ngx_cycle_t *cycle)
 
 #endif
 
-        if (ngx_shmtx_create(&upsync_server[i].upsync_accept_mutex, 
-                             (ngx_shmtx_sh_t *)(shared + (i + 1) * cl), file) 
-                != NGX_OK) 
+        if (ngx_shmtx_create(&upsync_server[i].upsync_accept_mutex,
+                             (ngx_shmtx_sh_t *)(shared + (i + 1) * cl), file)
+                != NGX_OK)
         {
             return NGX_ERROR;
         }
@@ -2831,9 +2831,9 @@ ngx_http_upsync_send_handler(ngx_event_t *event)
         || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_SERVICES
         || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_HEALTH)
     {
-        ngx_sprintf(request, "GET %V?recurse&index=%uL HTTP/1.0\r\nHost: %V\r\n"
+        ngx_sprintf(request, "GET %V?recurse&index=%uL&wait=%Mms&max_stale=%Mms HTTP/1.0\r\nHost: %V\r\n"
                     "Accept: */*\r\n\r\n", 
-                    &upscf->upsync_send, upsync_server->index, 
+                    &upscf->upsync_send, upsync_server->index, upscf->upsync_timeout, upscf->upsync_interval,
                     &upscf->upsync_host);
     }
 
@@ -3894,9 +3894,9 @@ ngx_http_client_send(ngx_http_conf_client *client,
         || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_SERVICES
         || upsync_type_conf->upsync_type == NGX_HTTP_UPSYNC_CONSUL_HEALTH)
     {
-        ngx_sprintf(request, "GET %V?recurse&index=%uL HTTP/1.0\r\nHost: %V\r\n"
-                    "Accept: */*\r\n\r\n", 
-                    &upscf->upsync_send, upsync_server->index, 
+        ngx_sprintf(request, "GET %V?recurse&index=%uL&wait=%Mms&max_stale=%Mms HTTP/1.0\r\nHost: %V\r\n"
+                    "Accept: */*\r\n\r\n",
+                    &upscf->upsync_send, upsync_server->index, upscf->upsync_timeout, upscf->upsync_interval,
                     &upscf->conf_server.name);
     }
 
