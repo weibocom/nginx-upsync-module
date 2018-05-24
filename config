@@ -6,7 +6,7 @@ ngx_module_incs=$ngx_addon_dir/src
 
 _HTTP_UPSYNC_SRCS="\
   $ngx_addon_dir/src/ngx_http_upsync_module.c \
-  $ngx_addon_dir/src/ngx_http_json.c \
+  $ngx_addon_dir/src/cJSON.c \
   $ngx_addon_dir/src/ngx_http_parser.c \
 "
 
