@@ -418,7 +418,7 @@ TODO
 Compatibility
 =============
 
-Master branch is compatible with nginx-1.9+.
+Master branch is compatible with nginx-1.9.8+.
 
 The branch of nginx-upsync-1.8.x is compatible with Nginx-1.8.x and with tengine-2.2.0.
 
