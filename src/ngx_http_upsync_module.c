@@ -3096,7 +3096,7 @@ ngx_http_upsync_dump_server(ngx_http_upsync_server_t *upsync_server)
 static ngx_int_t
 ngx_http_upsync_init_server(ngx_event_t *event)
 {
-    ngx_int_t                                n = 0, random = 0 cur = 0;
+    ngx_uint_t                               n = 0, r = 0, cur = 0;
     ngx_pool_t                              *pool;
     ngx_http_upsync_ctx_t                   *ctx;
     ngx_http_upsync_server_t                *upsync_server;
@@ -3166,13 +3166,13 @@ ngx_http_upsync_init_server(ngx_event_t *event)
             n++;
         }
 
-        random = ngx_random() % n;
+        r = ngx_random() % n;
         for (rp = res; rp != NULL; rp = rp->ai_next) {
             if (rp->ai_family != AF_INET) {
                 continue;
             }
 
-            if (cur != random) {
+            if (cur != r) {
                 cur++;
                 continue;
             }
