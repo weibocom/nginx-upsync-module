@@ -194,11 +194,15 @@ static ngx_int_t ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
     ngx_http_upsync_server_t *upsync_server);
 static ngx_int_t ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
     ngx_http_upsync_server_t *upsync_server);
+static ngx_int_t ngx_http_upsync_replace_peers(ngx_cycle_t *cycle,
+    ngx_http_upsync_server_t *upsync_server);
+static void ngx_http_upsync_update_peer(ngx_http_upstream_rr_peers_t *peers,
+    ngx_http_upstream_rr_peer_t *peer,
+    ngx_http_upsync_conf_t *upstream_conf,
+    ngx_uint_t *updated);
 static void ngx_http_upsync_diff_filter(ngx_cycle_t *cycle, 
     ngx_http_upsync_server_t *upsync_server,
     ngx_uint_t *diff);
-static ngx_int_t ngx_http_upsync_replace_peers(ngx_cycle_t *cycle,
-    ngx_http_upsync_server_t *upsync_server);
 
 static void ngx_http_upsync_event_init(ngx_http_upstream_rr_peer_t *peer, 
     ngx_http_upsync_server_t *upsync_server);
@@ -923,6 +927,7 @@ invalid:
     return NGX_ERROR;
 }
 
+
 static void
 ngx_http_upsync_update_peer(ngx_http_upstream_rr_peers_t *peers,
     ngx_http_upstream_rr_peer_t *peer,
@@ -958,19 +963,21 @@ ngx_http_upsync_update_peer(ngx_http_upstream_rr_peers_t *peers,
     return;
 }
 
+
 static void
 ngx_http_upsync_diff_filter(ngx_cycle_t *cycle, 
     ngx_http_upsync_server_t *upsync_server,
     ngx_uint_t *diff)
 {
     ngx_uint_t                          i, j, len, updated;
+    ngx_uint_t                         *flags = NULL;
+    ngx_array_t                         flag_array;
     ngx_http_upsync_ctx_t              *ctx;
-    ngx_http_upsync_conf_t             *upstream_conf, *add_upstream, *del_upstream;
+    ngx_http_upsync_conf_t             *upstream_conf;
+    ngx_http_upsync_conf_t             *add_upstream, *del_upstream;
     ngx_http_upstream_rr_peer_t        *peer = NULL;
     ngx_http_upstream_rr_peers_t       *peers = NULL;
     ngx_http_upstream_srv_conf_t       *uscf;
-    ngx_uint_t                         *flags = NULL;
-    ngx_array_t                         flag_array;
 
     *diff = 0;
     ctx = &upsync_server->ctx;
@@ -983,14 +990,14 @@ ngx_http_upsync_diff_filter(ngx_cycle_t *cycle,
                        sizeof(*add_upstream)) != NGX_OK)
     {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                      "upsync_add_check: alloc error");
+                      "upsync_diff_filter_add: alloc error");
         return;
     }
 
     if (ngx_array_init(&ctx->del_upstream, ctx->pool, 16,
                        sizeof(*del_upstream)) != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                      "upsync_del_check: alloc error");
+                      "upsync_diff_filter_del: alloc error");
         return;
     }
 
@@ -1000,12 +1007,11 @@ ngx_http_upsync_diff_filter(ngx_cycle_t *cycle,
     }
     
     peers = (ngx_http_upstream_rr_peers_t *)uscf->peer.data;
-
     if (peers->number != 0) {
         if (ngx_array_init(&flag_array, ctx->pool, peers->number,
                        sizeof(*flags)) != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-                          "upsync_del_flags: alloc error");
+                          "upsync_diff_filter: alloc error");
             return;
         }
 
@@ -1021,17 +1027,17 @@ ngx_http_upsync_diff_filter(ngx_cycle_t *cycle,
             if (*(flags + j) == 1) {
                 continue;
             }
-        
+
             if (ngx_memn2cmp(peer->name.data, upstream_conf->sockaddr,
                              peer->name.len,
                              ngx_strlen(upstream_conf->sockaddr)) == 0) {
                 // update peer
                 ngx_http_upsync_update_peer(peers, peer, upstream_conf, &updated);
                 *diff |= updated;
-                
+
                 // set flag, not to be deleted
                 *(flags + j) = 1;
-                
+
                 break;
             }
         }
@@ -1048,7 +1054,7 @@ ngx_http_upsync_diff_filter(ngx_cycle_t *cycle,
         if (*(flags + j) == 1) {
             continue;
         }
-        
+
         del_upstream = ngx_array_push(&ctx->del_upstream);
         ngx_memzero(del_upstream, sizeof(*del_upstream));
         ngx_memcpy(&del_upstream->sockaddr, peer->name.data, peer->name.len);
@@ -3485,7 +3491,7 @@ ngx_http_upsync_timeout_handler(ngx_event_t *event)
     upsync_server = event->data;
 
     ngx_log_error(NGX_LOG_ERR, event->log, 0,
-                  "upsync_timeout: timed out reading upsync_server: %V ", 
+                  "[WARN] upsync_timeout: timed out reading upsync_server: %V ",
                   upsync_server->pc.name);
 
     ngx_http_upsync_clean_event(upsync_server);
@@ -3566,7 +3572,9 @@ static void
 ngx_http_upsync_clear_all_events(ngx_cycle_t *cycle)
 {
     ngx_uint_t                          i;
+    ngx_queue_t                        *head, *next;
     ngx_connection_t                   *c;
+    ngx_delay_event_t                  *queue_event;
     ngx_upsync_conf_t                  *upsync_type_conf;
     ngx_http_upsync_server_t           *upsync_server;
 
@@ -3597,6 +3605,17 @@ ngx_http_upsync_clear_all_events(ngx_cycle_t *cycle)
                 upsync_server->pc.connection = NULL;
             }
             ngx_del_timer(&upsync_server[i].upsync_timeout_ev);
+        }
+
+        head = &upsync_server[i].delete_ev;
+        for (next = ngx_queue_head(head);
+                next != ngx_queue_sentinel(head);
+                next = ngx_queue_next(next)) {
+
+            queue_event = ngx_queue_data(next, ngx_delay_event_t, delay_delete_ev);
+            if (queue_event->delay_delete_ev.timer_set) {
+                ngx_del_timer(&queue_event->delay_delete_ev);
+            }
         }
     }
 
