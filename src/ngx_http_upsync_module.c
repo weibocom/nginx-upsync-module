@@ -28,7 +28,7 @@ typedef struct {
     ngx_int_t                        weight;
     ngx_uint_t                       max_fails;
     time_t                           fail_timeout;
-	ngx_uint_t						 max_conns;
+    ngx_uint_t                         max_conns;
 
     unsigned                         down:1;
     unsigned                         backup:1;
@@ -529,7 +529,7 @@ ngx_http_upsync_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     conf_server->weight = 1;
     conf_server->max_fails = 1;
     conf_server->fail_timeout = 10;
-	conf_server->max_conns = 0;
+    conf_server->max_conns = 0;
 
     return NGX_CONF_OK;
 
@@ -867,7 +867,7 @@ ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
             peer->name.len = server->addrs->name.len;
             peer->max_fails = server->max_fails;
             peer->fail_timeout = server->fail_timeout;
-			peer->max_conns = server->max_conns;
+            peer->max_conns = server->max_conns;
             peer->down = server->down;
             peer->weight = server->weight;
             peer->effective_weight = server->weight;
@@ -945,7 +945,7 @@ ngx_http_upsync_update_peer(ngx_http_upstream_rr_peers_t *peers,
         peer->fail_timeout == upstream_conf->fail_timeout &&
         peer->down == upstream_conf->down &&
         peer->weight == upstream_conf->weight &&
-		peer->max_conns == upstream_conf->max_conns) {
+        peer->max_conns == upstream_conf->max_conns) {
         return;
     }
 
@@ -956,7 +956,7 @@ ngx_http_upsync_update_peer(ngx_http_upstream_rr_peers_t *peers,
     peer->weight = upstream_conf->weight;
     peer->effective_weight = upstream_conf->weight;
     peer->current_weight = 0;
-	peer->max_conns = upstream_conf->max_conns;
+    peer->max_conns = upstream_conf->max_conns;
 
     w = w + upstream_conf->weight - pw;
 
@@ -1226,7 +1226,7 @@ ngx_http_upsync_replace_peers(ngx_cycle_t *cycle,
 
             peer->max_fails = tmp_peer[i].max_fails;
             peer->fail_timeout = tmp_peer[i].fail_timeout;
-			peer->max_conns = tmp_peer[i].max_conns;
+            peer->max_conns = tmp_peer[i].max_conns;
             peer->down = tmp_peer[i].down;
             peer->weight = tmp_peer[i].weight;
             peer->effective_weight = tmp_peer[i].effective_weight;
@@ -1339,7 +1339,7 @@ ngx_http_upsync_consul_parse_json(void *data)
         upstream_conf->weight = 1;
         upstream_conf->max_fails = 2;
         upstream_conf->fail_timeout = 10;
-		upstream_conf->max_conns = 0;
+        upstream_conf->max_conns = 0;
 
         upstream_conf->down = 0;
         upstream_conf->backup = 0;
@@ -1397,19 +1397,19 @@ ngx_http_upsync_consul_parse_json(void *data)
             }
             temp1 = NULL;
 
-			temp1 = cJSON_GetObjectItem(sub_attribute, "max_conns");
-			if (temp1 != NULL) {
+            temp1 = cJSON_GetObjectItem(sub_attribute, "max_conns");
+            if (temp1 != NULL) {
 
-				if (temp1->valuestring != NULL) {
-					max_conns = ngx_atoi((u_char *)temp1->valuestring,
-						(size_t)ngx_strlen(temp1->valuestring));
+                if (temp1->valuestring != NULL) {
+                    max_conns = ngx_atoi((u_char *)temp1->valuestring,
+                        (size_t)ngx_strlen(temp1->valuestring));
 
-				}
-				else if (temp1->valueint >= 0) {
-					max_conns = temp1->valueint;
-				}
-			}
-			temp1 = NULL;
+                }
+                else if (temp1->valueint >= 0) {
+                    max_conns = temp1->valueint;
+                }
+            }
+            temp1 = NULL;
 
 
 
@@ -1465,14 +1465,14 @@ ngx_http_upsync_consul_parse_json(void *data)
             upstream_conf->fail_timeout = 10;
         }
 
-		if (max_conns < 0) {
-			ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-				"upsync_parse_json: \"max_conns\" value is invalid"
-				", setting default value 0");
-		}
-		else {
-			upstream_conf->max_conns = (ngx_uint_t)max_conns;
-		}
+        if (max_conns < 0) {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                "upsync_parse_json: \"max_conns\" value is invalid"
+                ", setting default value 0");
+        }
+        else {
+            upstream_conf->max_conns = (ngx_uint_t)max_conns;
+        }
 
 
 
@@ -1575,7 +1575,7 @@ ngx_http_upsync_consul_services_parse_json(void *data)
         upstream_conf->weight = 1;
         upstream_conf->max_fails = 2;
         upstream_conf->fail_timeout = 10;
-		upstream_conf->max_conns = 0;
+        upstream_conf->max_conns = 0;
 
         upstream_conf->down = 0;
         upstream_conf->backup = 0;
@@ -1629,19 +1629,19 @@ ngx_http_upsync_consul_services_parse_json(void *data)
                     upstream_conf->fail_timeout = attr_value;
                 }
             }
-			if (ngx_strncmp(tag, "max_conns=", 10) == 0) {
-				attr_value = ngx_atoi(tag + 10, (size_t)ngx_strlen(tag) - 10);
+            if (ngx_strncmp(tag, "max_conns=", 10) == 0) {
+                attr_value = ngx_atoi(tag + 10, (size_t)ngx_strlen(tag) - 10);
 
-				if (attr_value == NGX_ERROR || attr_value < 0) {
-					ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-						"upsync_parse_json: \"max_conns\" value is "
-						"invalid, setting default value 0");
-					continue;
-				}
-				else {
-					upstream_conf->max_conns = attr_value;
-				}
-			}
+                if (attr_value == NGX_ERROR || attr_value < 0) {
+                    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                        "upsync_parse_json: \"max_conns\" value is "
+                        "invalid, setting default value 0");
+                    continue;
+                }
+                else {
+                    upstream_conf->max_conns = attr_value;
+                }
+            }
 
 
             if (ngx_strncmp(tag, "down", 4) == 0 && tag[4] == '\0') {
@@ -1736,7 +1736,7 @@ ngx_http_upsync_consul_health_parse_json(void *data)
         upstream_conf->weight = 1;
         upstream_conf->max_fails = 2;
         upstream_conf->fail_timeout = 10;
-		upstream_conf->max_conns = 2;
+        upstream_conf->max_conns = 2;
 
         upstream_conf->down = 0;
         upstream_conf->backup = 0;
@@ -1807,19 +1807,19 @@ ngx_http_upsync_consul_health_parse_json(void *data)
                     upstream_conf->fail_timeout = attr_value;
                 }
             }
-			if (ngx_strncmp(tag, "max_conns=", 10) == 0) {
-				attr_value = ngx_atoi(tag + 10, (size_t)ngx_strlen(tag) - 10);
+            if (ngx_strncmp(tag, "max_conns=", 10) == 0) {
+                attr_value = ngx_atoi(tag + 10, (size_t)ngx_strlen(tag) - 10);
 
-				if (attr_value == NGX_ERROR || attr_value < 0) {
-					ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-						"upsync_parse_json: \"max_conns\" value is "
-						"invalid, setting default value 0");
-					continue;
-				}
-				else {
-					upstream_conf->max_conns = attr_value;
-				}
-			}
+                if (attr_value == NGX_ERROR || attr_value < 0) {
+                    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                        "upsync_parse_json: \"max_conns\" value is "
+                        "invalid, setting default value 0");
+                    continue;
+                }
+                else {
+                    upstream_conf->max_conns = attr_value;
+                }
+            }
 
             if (ngx_strncmp(tag, "down", 4) == 0 && tag[4] == '\0') {
                 upstream_conf->down = 1;
@@ -1933,7 +1933,7 @@ ngx_http_upsync_etcd_parse_json(void *data)
         upstream_conf->weight = 1;
         upstream_conf->max_fails = 2;
         upstream_conf->fail_timeout = 10;
-		upstream_conf->max_conns = 2;
+        upstream_conf->max_conns = 2;
 
         upstream_conf->down = 0;
         upstream_conf->backup = 0;
@@ -1989,19 +1989,19 @@ ngx_http_upsync_etcd_parse_json(void *data)
             }
             temp1 = NULL;
 
-			temp1 = cJSON_GetObjectItem(sub_attribute, "max_conns");
-			if (temp1 != NULL) {
+            temp1 = cJSON_GetObjectItem(sub_attribute, "max_conns");
+            if (temp1 != NULL) {
 
-				if (temp1->valuestring != NULL) {
-					max_conns = ngx_atoi((u_char *)temp1->valuestring,
-						(size_t)ngx_strlen(temp1->valuestring));
+                if (temp1->valuestring != NULL) {
+                    max_conns = ngx_atoi((u_char *)temp1->valuestring,
+                        (size_t)ngx_strlen(temp1->valuestring));
 
-				}
-				else if (temp1->valueint >= 0) {
-					max_conns = temp1->valueint;
-				}
-			}
-			temp1 = NULL;
+                }
+                else if (temp1->valueint >= 0) {
+                    max_conns = temp1->valueint;
+                }
+            }
+            temp1 = NULL;
 
 
             temp1 = cJSON_GetObjectItem(sub_attribute, "down");
@@ -2056,14 +2056,14 @@ ngx_http_upsync_etcd_parse_json(void *data)
             upstream_conf->fail_timeout = 10;
         }
 
-		if (max_conns < 0) {
-			ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-				"upsync_parse_json: \"max_conns\" value is invalid"
-				", setting default value 2");
-		}
-		else {
-			upstream_conf->max_conns = (ngx_uint_t)max_conns;
-		}
+        if (max_conns < 0) {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                "upsync_parse_json: \"max_conns\" value is invalid"
+                ", setting default value 2");
+        }
+        else {
+            upstream_conf->max_conns = (ngx_uint_t)max_conns;
+        }
 
         if (down != 1 && down != 0) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
@@ -2185,7 +2185,7 @@ ngx_http_upsync_servers(ngx_cycle_t *cycle,
             server->weight = conf->weight;
             server->max_fails = conf->max_fails;
             server->fail_timeout = conf->fail_timeout;
-			server->max_conns = conf->max_conns;
+            server->max_conns = conf->max_conns;
         }
 
     } else {
@@ -2207,7 +2207,7 @@ ngx_http_upsync_servers(ngx_cycle_t *cycle,
             server->weight = conf->weight;
             server->max_fails = conf->max_fails;
             server->fail_timeout = conf->fail_timeout;
-			server->max_conns = conf->max_conns;
+            server->max_conns = conf->max_conns;
         }
     }
 
@@ -3143,8 +3143,8 @@ ngx_http_upsync_dump_server(ngx_http_upsync_server_t *upsync_server)
                                " max_fails=%d", peer->max_fails);
         b->last = ngx_snprintf(b->last, b->end - b->last, 
                                " fail_timeout=%ds", peer->fail_timeout);
-		b->last = ngx_snprintf(b->last, b->end - b->last,
-							   " max_conns=%d", peer->max_conns);
+        b->last = ngx_snprintf(b->last, b->end - b->last,
+                               " max_conns=%d", peer->max_conns);
         if (peer->down) {
             b->last = ngx_snprintf(b->last, b->end - b->last, " down");
         }
@@ -4001,8 +4001,8 @@ ngx_http_upsync_show_upstream(ngx_http_upstream_srv_conf_t *uscf, ngx_buf_t *b)
                                " max_fails=%d", peer->max_fails);
         b->last = ngx_snprintf(b->last, b->end - b->last, 
                                " fail_timeout=%ds", peer->fail_timeout);
-		b->last = ngx_snprintf(b->last, b->end - b->last,
-							   " max_conns=%d", peer->max_conns);
+        b->last = ngx_snprintf(b->last, b->end - b->last,
+                               " max_conns=%d", peer->max_conns);
 
         if (peer->down) {
             b->last = ngx_snprintf(b->last, b->end - b->last, " down");
@@ -4064,12 +4064,12 @@ ngx_http_upsync_show(ngx_http_request_t *r)
 
             goto end;
         }
-    	
-    	for (i = 0; i < umcf->upstreams.nelts; i++) {
+        
+        for (i = 0; i < umcf->upstreams.nelts; i++) {
             ngx_http_upsync_show_upstream(uscfp[i], b);
             b->last = ngx_snprintf(b->last, b->end - b->last, "\n");
         }
-    	
+        
         goto end;
     }
 
