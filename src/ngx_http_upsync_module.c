@@ -956,7 +956,7 @@ ngx_http_upsync_update_peer(ngx_http_upstream_rr_peers_t *peers,
     peer->weight = upstream_conf->weight;
     peer->effective_weight = upstream_conf->weight;
     peer->current_weight = 0;
-	peer->max_conns == upstream_conf->max_conns;
+	peer->max_conns = upstream_conf->max_conns;
 
     w = w + upstream_conf->weight - pw;
 
