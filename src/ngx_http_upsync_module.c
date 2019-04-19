@@ -3612,7 +3612,7 @@ ngx_http_upsync_clear_all_events(ngx_cycle_t *cycle)
                 next != ngx_queue_sentinel(head);
                 next = ngx_queue_next(next)) {
 
-            queue_event = ngx_queue_data(next, ngx_delay_event_t, delay_delete_ev);
+            queue_event = ngx_queue_data(next, ngx_delay_event_t, queue);
             if (queue_event->delay_delete_ev.timer_set) {
                 ngx_del_timer(&queue_event->delay_delete_ev);
             }
