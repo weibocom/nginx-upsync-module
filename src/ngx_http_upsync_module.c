@@ -3846,6 +3846,7 @@ ngx_http_client_recv(ngx_http_conf_client *client, char **data, int size)
 
             *data = (char *) ngx_calloc(page_count * ngx_pagesize, ngx_cycle->log);
             if (*data == NULL) {
+                ngx_free(tmp_data);
                 return NGX_ERROR;
             }
             ngx_memcpy(*data, tmp_data, recv_num - tmp_recv);
