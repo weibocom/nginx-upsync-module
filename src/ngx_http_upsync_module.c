@@ -3286,6 +3286,9 @@ ngx_http_upsync_del_delay_delete(ngx_event_t *event)
 
     c = ngx_cycle->connections;
     conn_interval = ngx_cycle->connection_n / 30;
+    if (!conn_interval) {
+        conn_interval = 1;
+    }
     for (i = 0; i < ngx_cycle->connection_n; i += conn_interval) {
 
         if (c[i].fd == (ngx_socket_t) -1) {
