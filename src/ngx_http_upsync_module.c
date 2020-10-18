@@ -1070,7 +1070,7 @@ static ngx_int_t
 ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
     ngx_http_upsync_server_t *upsync_server)
 {
-    ngx_uint_t                     i, n=0, w=0, len;
+    ngx_uint_t                     i, n=0, w=0, del_count=0, len;
     ngx_array_t                   *servers;
     ngx_http_upstream_server_t    *server = NULL;
     ngx_http_upstream_rr_peer_t   *peer = NULL, *pre_peer = NULL;
@@ -1114,6 +1114,9 @@ ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
 
     pre_peer = peers->peer;
     for (peer = peers->peer; peer; peer = peer->next) {
+		if (del_count == 1) {
+			break;
+		}
         for (i = 0; i < servers->nelts; i++) {
 
             server = (ngx_http_upstream_server_t *)servers->elts + i;
@@ -1121,7 +1124,7 @@ ngx_http_upsync_del_peers(ngx_cycle_t *cycle,
                              (u_char *) server->addrs->sockaddr,
                              len, len) == 0)
             {
-
+				del_count = 1;
 #if (NGX_HTTP_UPSTREAM_CHECK) 
                 ngx_http_upstream_check_delete_dynamic_peer(
                                                     peers->name, server->addrs);
