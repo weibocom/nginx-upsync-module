@@ -136,8 +136,9 @@ typedef struct {
 
 typedef struct {
     ngx_uint_t                               upstream_num;
-
     ngx_http_upsync_server_t                *upsync_server;
+    
+    ngx_pool_t                              *pool; // worker common pool, can't be destroyed
 } ngx_http_upsync_main_conf_t;
 
 
@@ -839,20 +840,18 @@ ngx_http_upsync_add_peers(ngx_cycle_t *cycle,
             // FIXME: until backup is fully implemented this causes crashes
             //        on startup with nodes set backup=1. Let them in for now
 
-            peer = ngx_calloc(sizeof(ngx_http_upstream_rr_peer_t), 
-                               cycle->log);
+            peer = ngx_pcalloc(upsync_ctx->pool, sizeof(ngx_http_upstream_rr_peer_t));
             if (peer == NULL) {
                 goto invalid;
             }
 
-            if ((saddr = ngx_calloc(len, cycle->log)) == NULL) {
+            if ((saddr = ngx_pcalloc(upsync_ctx->pool, len)) == NULL) {
                 goto invalid;
             }
             ngx_memcpy(saddr, server->addrs->sockaddr, len);
             peer->sockaddr = saddr;
 
-            if ((namep = ngx_calloc(server->addrs->name.len,
-                                    cycle->log)) == NULL) {
+            if ((namep = ngx_pcalloc(upsync_ctx->pool, server->addrs->name.len)) == NULL) {
                 goto invalid;
             }
             ngx_memcpy(namep, server->addrs->name.data,
@@ -1198,13 +1197,12 @@ ngx_http_upsync_replace_peers(ngx_cycle_t *cycle,
     if (peers) {
 
         for (i = 0; i < peers->number; i++) {
-            peer = ngx_calloc(sizeof(ngx_http_upstream_rr_peer_t), 
-                                     cycle->log);
+            peer = ngx_pcalloc(upsync_ctx->pool, sizeof(ngx_http_upstream_rr_peer_t));
             if (peer == NULL) {
                 goto invalid;
             }
 
-            if ((saddr = ngx_calloc(len, cycle->log)) == NULL) {
+            if ((saddr = ngx_pcalloc(upsync_ctx->pool, len)) == NULL) {
                 goto invalid;
             }
             ngx_memcpy(saddr, tmp_peer[i].sockaddr, len);
@@ -1214,8 +1212,7 @@ ngx_http_upsync_replace_peers(ngx_cycle_t *cycle,
             peer->name.len = tmp_peer[i].name.len;
             peer->server.len = tmp_peer[i].name.len;
 
-            if ((namep = ngx_calloc(tmp_peer[i].name.len,
-                                    cycle->log)) == NULL) {
+            if ((namep = ngx_pcalloc(upsync_ctx->pool, tmp_peer[i].name.len)) == NULL) {
                 goto invalid;
             }
             ngx_memcpy(namep, tmp_peer[i].name.data, tmp_peer[i].name.len);
@@ -2198,6 +2195,7 @@ ngx_http_upsync_create_main_conf(ngx_conf_t *cf)
 
     upmcf->upstream_num = NGX_CONF_UNSET_UINT;
     upmcf->upsync_server = NGX_CONF_UNSET_PTR;
+    upmcf->pool = NULL;
 
     return upmcf;
 }
@@ -2467,6 +2465,18 @@ ngx_http_upsync_init_process(ngx_cycle_t *cycle)
     if (upsync_ctx == NULL) {
         return NGX_OK;
     }
+
+    if (upsync_ctx->pool == NULL) {
+        pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, ngx_cycle->log);
+        if (pool == NULL) {
+            ngx_log_error(NGX_LOG_ERR, cycle->log, 0, 
+                          "upsync_init_process: create main conf pool error, "
+                          "server no enough memory");
+            return NGX_ERROR;
+        }
+        upsync_ctx->pool = pool;
+    }
+    
     upsync_server = upsync_ctx->upsync_server;
 
     for (i = 0; i < upsync_ctx->upstream_num; i++) {
@@ -3322,20 +3332,20 @@ ngx_http_upsync_del_delay_delete(ngx_event_t *event)
     while (peer != NULL) {
         saddr = peer->sockaddr;
         if (saddr != NULL) {
-            ngx_free(saddr);
+            ngx_pfree(upsync_ctx->pool, saddr);
             saddr = NULL;
         }
 
         namep = peer->name.data;
         if (namep != NULL) {
-            ngx_free(namep);
+            ngx_pfree(upsync_ctx->pool, namep);
             namep = NULL;
         }
 
         pre_peer = peer;
         peer = peer->next;
 
-        ngx_free(pre_peer);
+        ngx_pfree(upsync_ctx->pool, pre_peer);
     }
 
     ngx_queue_remove(&delay_event->queue);
