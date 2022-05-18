@@ -145,7 +145,7 @@ http {
 }
 ```
 
-NOTE: recomending strong_dependency is configed off and the first time included file include all the servers.
+NOTE: recommending strong_dependency is configed off and the first time included file include all the servers.
 
 Description
 ======

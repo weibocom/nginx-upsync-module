@@ -23,7 +23,7 @@ C<tz2zone()> parses the TZ environment variable and returns a timezone
 string suitable for inclusion in L<date>-like output.  It opionally takes
 a timezone string, a time, and a is-dst flag.
 
-C<tz_local_offset()> determins the offset from GMT time in seconds.  It
+C<tz_local_offset()> determines the offset from GMT time in seconds.  It
 only does the calculation once.
 
 C<tz_offset()> determines the offset from GMT in seconds of a specified
@@ -131,7 +131,7 @@ sub calc_off
 	} elsif ($l[7] == $g[7] - 1) {
 		$off -= 86400;
 	} elsif ($l[7] < $g[7]) {
-		# crossed over a year boundry!
+		# crossed over a year boundary!
 		# localtime is beginning of year, gmt is end
 		# therefore local is ahead
 		$off += 86400;
