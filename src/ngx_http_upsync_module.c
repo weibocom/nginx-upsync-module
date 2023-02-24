@@ -2011,7 +2011,7 @@ ngx_http_upsync_check_key(u_char *key, ngx_str_t host)
     u_p = (u_char *)ngx_strstr(key, host.data);
     if (u_p == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "upsync_parse_json: %s is illegal, "
+                      "upsync_check_key: %s is illegal, "
                       "dont contains subkey %V", key, &host);
         return NGX_ERROR;
     }
@@ -2022,7 +2022,7 @@ ngx_http_upsync_check_key(u_char *key, ngx_str_t host)
     s_p = (u_char *)ngx_strrchr(key, '/');
     if (s_p == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "upsync_parse_json: %s is illegal, "
+                      "upsync_check_key: %s is illegal, "
                       "dont contains slash \'/\'", key);
         return NGX_ERROR;
     }
@@ -2969,7 +2969,7 @@ ngx_http_upsync_etcd_parse_init(void *data)
     parsed = http_parser_execute(parser, &settings, buf, ngx_strlen(buf));
     if (parsed != ngx_strlen(buf)) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "upsync_consul_parse_init: parsed upstream \"%V\" wrong",
+                      "upsync_etcd_parse_init: parsed upstream \"%V\" wrong",
                       &upsync_server->host);
 
         if (parser != NULL) {
@@ -2992,7 +2992,7 @@ ngx_http_upsync_etcd_parse_init(void *data)
 
     } else {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "upsync_consul_parse_init: recv upstream \"%V\" error; "
+                      "upsync_etcd_parse_init: recv upstream \"%V\" error; "
                       "http_status: %d", &upsync_server->host, parser->status_code);
 
         if (parser != NULL) {
@@ -3128,7 +3128,7 @@ ngx_http_upsync_init_server(ngx_event_t *event)
         pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, ngx_cycle->log);
         if (pool == NULL) {
             ngx_log_error(NGX_LOG_ERR, event->log, 0, 
-                          "upsync_init_consul: cannot create pool, not enough memory");
+                          "upsync_init_server: cannot create pool, not enough memory");
             return NGX_ERROR;
         }
         ctx->pool = pool;
