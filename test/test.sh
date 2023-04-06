@@ -1,7 +1,7 @@
 #!/bin/sh
 
 dir=$( dirname $0 )
-if [[ "${dir}" == "." ]]; then
+if [ "${dir}" == "." ]; then
     dir=$( pwd )
 fi
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 
-if [[ -d "_nginx" ]]; then
+if [ -d "_nginx" ]; then
     exit
 fi
 
