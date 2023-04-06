@@ -1,0 +1,64 @@
+name: tests
+
+on: [push]
+
+jobs:
+  build:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+        - {
+            name: "Ubuntu 22.04 GCC	nginx 1.23", artifact: "Linux.tar.xz",
+            os: ubuntu-22.04,
+            cc: "gcc", cxx: "g++",
+            nginx_version: "1.23.4", consul_version: "1.15.2"
+          }
+        - {
+            name: "Ubuntu 22.04 Clang	nginx 1.23", artifact: "Linux.tar.xz",
+            os: ubuntu-22.04,
+            cc: "clang", cxx: "clang++",
+            nginx_version: "1.23.4", consul_version: "1.15.2"
+          }
+        - {
+            name: "macOS 10.15 Clang nginx 1.23", artifact: "macOS.tar.xz",
+            os: macos-10.15,
+            cc: "clang", cxx: "clang++",
+            nginx_version: "1.23.4", consul_version: "1.15.2"
+          }
+        - {
+            name: "Ubuntu 20.04 GCC	nginx 1.22", artifact: "Linux.tar.xz",
+            os: ubuntu-20.04,
+            cc: "gcc", cxx: "g++",
+            nginx_version: "1.22.1", consul_version: "1.15.2"
+          }
+        - {
+            name: "Ubuntu 20.04 Clang	nginx 1.22", artifact: "Linux.tar.xz",
+            os: ubuntu-20.04,
+            cc: "clang", cxx: "clang++",
+            nginx_version: "1.22.1", consul_version: "1.15.2"
+          }
+        - {
+            name: "macOS 10.15 Clang nginx 1.22", artifact: "macOS.tar.xz",
+            os: macos-10.15,
+            cc: "clang", cxx: "clang++",
+            nginx_version: "1.22.1", consul_version: "1.15.2"
+          }
+
+    steps:
+    - uses: actions/checkout@v1
+
+    - name: Dependecies
+      run:   |
+        ./test/consul.sh ${{ consul_version }} > /tmp/consul.log &
+        sleep 10        
+      shell: bash
+
+    - name: Configure 
+      run: ./test/fetch.sh ${{ nginx_version }} && ./test/configure.sh
+    - name: Build
+      run: ./test/build.sh
+    - name: Test
+      run: ./test/test.sh
