@@ -52,12 +52,12 @@ jobs:
 
     - name: Dependecies
       run:   |
-        ./test/consul.sh ${{ consul_version }} > /tmp/consul.log &
+        ./test/consul.sh ${{ matrix.consul_version }} > /tmp/consul.log &
         sleep 10        
       shell: bash
 
     - name: Configure 
-      run: ./test/fetch.sh ${{ nginx_version }} && ./test/configure.sh
+      run: ./test/fetch.sh ${{ matrix.nginx_version }} && ./test/configure.sh
     - name: Build
       run: ./test/build.sh
     - name: Test
