@@ -1,3 +1,7 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
-TEST_NGINX_USE_HUP=1 TEST_NGINX_BINARY=/usr/local/nginx/sbin/nginx prove -r t
+dir=$( pwd )
+
+cd ${dir}/test || exit 1
+
+TEST_NGINX_USE_HUP=1 TEST_NGINX_BINARY=${dir}/_nginx/objs/nginx prove -r t
