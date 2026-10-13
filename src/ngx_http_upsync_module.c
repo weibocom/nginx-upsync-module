@@ -2643,9 +2643,7 @@ ngx_http_upsync_connect_handler(ngx_event_t *event)
                       "upsync_connect_handler: cannot connect to upsync_server: %V ",
                       upsync_server->pc.name);
 
-        ngx_del_timer(&upsync_server->upsync_timeout_ev);
-        ngx_add_timer(&upsync_server->upsync_ev, 0);
-
+        ngx_http_upsync_clean_event(upsync_server);
         return;
     }
 
