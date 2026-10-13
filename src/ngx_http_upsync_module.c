@@ -3173,6 +3173,10 @@ ngx_http_upsync_init_server(ngx_event_t *event)
             n++;
         }
 
+        if (n == 0) {
+            goto valid;
+        }
+
         r = ngx_random() % n;
         for (rp = res; rp != NULL; rp = rp->ai_next) {
             if (rp->ai_family != AF_INET) {
