@@ -323,6 +323,15 @@ or
 Etcd_interface
 ======
 
+**crucial**
+
+etcd's http_interface v2 and v3 are completely incompatible. To enable v2 on v3, you need to enter `--enable-v2=true` or ENV `ETCD_ENABLE_V2=true`. In addition, data submitted by grpc clients using version v3 is not visible in version v2, and they are separated from the storage layer.
+
+If you must use it in the etcd v3 storage, can refer to an open source external to implement proxy: 
+https://github.com/reatang/etcdv3_upsync_proxy
+
+**etcd v2 http_interface**
+
 you can add or delete backend server through http_interface.
 
 mainly like etcd, http_interface example:
