@@ -1695,7 +1695,8 @@ ngx_http_upsync_consul_health_parse_json(void *data)
 
         checks = cJSON_GetObjectItem(server_next, "Checks");
 
-        for (check_next = checks->child; check_next != NULL;
+        for (check_next = (checks != NULL) ? checks->child : NULL;
+             check_next != NULL;
              check_next = check_next->next)
         {
             cJSON *check_status;
