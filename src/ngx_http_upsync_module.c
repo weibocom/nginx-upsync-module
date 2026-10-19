@@ -3450,7 +3450,7 @@ ngx_http_header_field_cb (http_parser *p, const char *buf, size_t len)
              * X-Consul-Index or X-Etcd-Index leaves the index at 0, which
              * upsync_check_index() reports as "index has not changed".
              */
-            ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0,
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                           "upsync: conf server response has more than %d "
                           "headers, ignoring the rest", NGX_MAX_HEADERS);
 
