@@ -267,9 +267,6 @@ ngx_atomic_t  *upsync_shared_created = &upsync_shared_created0;
 static http_parser *parser = NULL;
 static ngx_http_state state;
 
-/* Warn once per worker when a conf-server reply overflows the header table. */
-static ngx_uint_t  upsync_header_overflow_warned = 0;
-
 static ngx_http_upsync_main_conf_t  *upsync_ctx = NULL;
 
 static ngx_command_t  ngx_http_upsync_commands[] = {
@@ -3447,17 +3444,15 @@ ngx_http_header_field_cb (http_parser *p, const char *buf, size_t len)
              * following header: indexing state.headers[] with num_headers
              * here would write past the end of the array.
              *
-             * Dropping the surplus headers is silent by design (the response is
-             * still usable), but it is worth one warning per worker: if the
-             * index header is among the dropped ones the upstream simply stops
-             * syncing, and "upstream index has not changed" points the wrong way.
+             * Logged once per reply: the IGNORED state above returns early
+             * from every later header, so this branch runs at most once.
+             * Silence here would be hard to diagnose: a dropped
+             * X-Consul-Index or X-Etcd-Index leaves the index at 0, which
+             * upsync_check_index() reports as "index has not changed".
              */
-            if (!upsync_header_overflow_warned) {
-                upsync_header_overflow_warned = 1;
-                ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0,
-                              "upsync: conf server response has more than %d "
-                              "headers, ignoring the rest", NGX_MAX_HEADERS);
-            }
+            ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0,
+                          "upsync: conf server response has more than %d "
+                          "headers, ignoring the rest", NGX_MAX_HEADERS);
 
             state.last_header = IGNORED;
             return NGX_OK;
