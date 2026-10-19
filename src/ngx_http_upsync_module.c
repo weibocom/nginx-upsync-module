@@ -149,7 +149,7 @@ typedef struct {
 
     ngx_uint_t num_headers;
 
-    enum { NONE=0, FIELD, VALUE } last_header;
+    enum { NONE=0, FIELD, VALUE, IGNORED } last_header;
 
     u_char     http_body[NGX_PAGE_SIZE * NGX_PAGE_NUMBER];
 } ngx_http_state;
@@ -3432,7 +3432,32 @@ ngx_http_header_field_cb (http_parser *p, const char *buf, size_t len)
         return NGX_ERROR;
     }
 
+    if (state.last_header == IGNORED) {
+        return NGX_OK;
+    }
+
     if (state.last_header != FIELD) {
+
+        if (state.num_headers >= NGX_MAX_HEADERS) {
+            /*
+             * The fixed-size header table is full.  Ignore this and every
+             * following header: indexing state.headers[] with num_headers
+             * here would write past the end of the array.
+             *
+             * Logged once per reply: the IGNORED state above returns early
+             * from every later header, so this branch runs at most once.
+             * Silence here would be hard to diagnose: a dropped
+             * X-Consul-Index or X-Etcd-Index leaves the index at 0, which
+             * upsync_check_index() reports as "index has not changed".
+             */
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                          "upsync: conf server response has more than %d "
+                          "headers, ignoring the rest", NGX_MAX_HEADERS);
+
+            state.last_header = IGNORED;
+            return NGX_OK;
+        }
+
         state.num_headers++;
     }
 
@@ -3454,6 +3479,10 @@ ngx_http_header_value_cb (http_parser *p, const char *buf, size_t len)
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                       "ngx_http_header_field_cb: parser argument is wrong");
         return NGX_ERROR;
+    }
+
+    if (state.last_header == IGNORED) {
+        return NGX_OK;
     }
 
     ngx_strlncat(state.headers[state.num_headers-1][1],
